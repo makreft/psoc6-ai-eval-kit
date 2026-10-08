@@ -1402,3 +1402,11 @@ Ein Fehlversuch dazwischen: Mein `sed` hatte aus `(250u)` ein `(1000)u)` gemacht
 **Zahlen:** Anwendung 81.564 Bytes Flash (inklusive BT-Firmware-Blob und Host-Stack), 41.940 Bytes RAM. Build 21 s, Flash 0,8 s, Bluetooth bereit etwa 2,5 s nach Reset.
 
 **Für den Handy-Test (Android):** App "Beacon Simulator" (Vincent Hiribarren, Play Store), neuen iBeacon anlegen mit UUID `A1E7A14B-1700-4A1C-9E5A-0C620000C147`, Major/Minor beliebig, Sendeleistung normal, Beacon starten (läuft im Hintergrund weiter). Alternativ ein Advertisement mit Gerätename `AI-Eval-Kit-Handy`. Beide Kennungen stehen in `zephyr/app/ble_presence/src/main.c`.
+
+## 60. Mikrofon unter Zephyr: Vorbereitung (Stand bei Marcos Aufbruch)
+
+**Weg:** Zephyr hat für den PSOC 6 keinen Mikrofontreiber (Abschnitt 56), aber die Infineon-HAL liegt im Modul hal_infineon vollständig vor: `mtb-hal-cat1/source/cyhal_pdmpcm.c`, `cyhal_audio_common.c` und der PDL-Treiber `mtb-pdl-cat1/drivers/source/cy_pdm_pcm.c`. Zephyr kompiliert diese Dateien für CAT1A nicht von sich aus; die Anwendung bindet sie selbst ein. Takt wie in Infineons Arduino-PDM-Bibliothek: PLL0 auf 24,576 MHz, HF1 (Audio-Subsystem) daraus. Zephyr nutzt die FLL für HF0, PLL0 ist frei. Lesen synchron per `cyhal_pdm_pcm_read` aus dem FIFO (256 Wörter), gepollt alle 2 ms, in 128-Sample-Blöcken verarbeitet; der asynchrone Pfad bräuchte den HAL-DMA-Treiber, der in Zephyr nicht mitgebaut wird.
+
+**Angelegt, noch nicht gebaut:** `zephyr/app/clap_rules/` mit `src/mic.c` (Takt und PDM über HAL, Pins P10.4/P10.5) und `src/main.c` (regelbasierter Klatsch-Detektor, 1:1 aus Sketch 03, gleiche Konsolenzeilen für den Viewer). Offene Punkte beim ersten Build: ob die Pin-Makros `P10_4`/`P10_5` über die vorhandenen Include-Pfade erreichbar sind, ob `cyhal_pdmpcm.c` ohne den DMA-Teil linkt (sonst DMA-Aufrufe per Stub ersetzen oder Lesepfad auf PDL umstellen), ob die HAL-Takt-Reservierung neben Zephyrs Clock-Control funktioniert.
+
+**Danach:** Merkmale und TFLM-Modell nach Zephyr (TFLM-Quellen aus der Arduino-Bibliothek als Zephyr-Bibliothek), dann Zusammenführung mit `ble_presence` in eine Anwendung mit zwei Threads.
