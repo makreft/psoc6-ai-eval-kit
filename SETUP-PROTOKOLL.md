@@ -1234,3 +1234,23 @@ Marco: "funktioniert noch nicht perfekt, aber eigentlich kannst du die Konfidenz
 **Änderung (kompiliert, hochgeladen):** `CLAP_THRESHOLD 0.35`, Entscheidung allein über die clap-Wahrscheinlichkeit, auch wenn "other" knapp vorne liegt. Damit wären in diesem Mitschnitt 19 statt 14 Klatscher geschaltet worden, bei unverändert null Fehlauslösungen durch Schnipsen oder Störgeräusche. Die zwei Fälle mit 0,31 und 0,33 bleiben bewusst draußen; dort ist der Abstand zu möglichen Fehlauslösungen zu klein.
 
 **Nachhaltige Verbesserung:** Die Grauzone entsteht in genau den Situationen, die in den Trainingsdaten unterrepräsentiert sind (Klatschen bei Lärm, aus Entfernung, leise). Vorschlag: eine zweite Aufnahmesitzung mit Sketch 04 bei eingeschaltetem Lärm und größerem Abstand (`session --per-class 20`), dann in 15 Sekunden nachtrainieren. Das Modell lernt dann die schwierigen Fälle statt sie über die Schwelle zu erraten.
+
+## 51. Git-Repository angelegt
+
+Marco: "sehr gut, das funktioniert besser. Setz das mal als Git-Repo auf und mach die entsprechenden Commits inklusive Message."
+
+**Ausgeschlossen per `.gitignore`** (zusammen über 4 GB, alles reproduzierbar, Bezugsquellen in `README.md`): heruntergeladene Werkzeuge (`tools/openocd`, `fw-loader`, `kp-firmware`, `arduino-cli`), Arduino-Core und Bibliotheken (`arduino/.arduino15`, `sketchbook/libraries`), Build-Ordner, Python-venv, SavedModel, das Infineon-Beispiel `examples/` (eigenes Repo mit 51 MB inklusive 25-MB-GIF), Zephyr-Workspace, Mitschnitte im Projektstamm (Kopien liegen bei den Sketches), Playwright-Reste.
+
+**Aufgenommen:** Dokumente, Skripte, Sketches mit generierten Headern, Firmware-Dateien samt Werkssicherung (5,6 MB), MicroPython-Firmware (3,3 MB), die 102 Trainingsaufnahmen (8,4 MB), Modell und Trainingsbericht, Screenshots. 154 Dateien, Repo 9 MB.
+
+**Historie** (thematisch, nicht chronologisch exakt; jeder Commit entspricht einem Teil des Protokolls):
+```
+4adc68a Projektgrundlage: Protokoll, Board-Übersicht, README, Ignore-Regeln
+966ff62 Firmware-Update unter Linux: Flash-Skripte, udev-Regel, Streaming-Firmware, Werkssicherung
+00d2623 Arduino-Core: Blink-Test, IMU-Gestenerkennung, regelbasierter Klatsch-Schalter
+f87cf3e Live-Viewer: Browser-Anzeige für Gesten- und Klatsch-Modus
+72d58bf Alternativen ohne Infineon-Konto: MicroPython-Firmware und Zephyr-Vorbereitung
+1422384 Audio-Aufnahme: Streaming-Sketch, geführtes Aufnahme-Werkzeug, Trainingsdaten
+2ee61c9 Klatsch-Modell: Merkmale, Training, int8-Export, Inferenz mit TensorFlow Lite Micro
+```
+Branch `main`, Autor laut globaler Git-Konfiguration (makreft). Kein Remote eingerichtet.

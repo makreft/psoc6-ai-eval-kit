@@ -79,7 +79,7 @@ Vorbehalt: Die Validierung ist klein und stammt aus derselben Sitzung wie das Tr
 
 ## 8. Deployment
 
-`train.py` erzeugt `model_data.h` (C-Array) und `features_config.h` (Bandtabelle, Fensterparameter, Quantisierungsparameter). Beides wird in `arduino/sketchbook/05-clap-model/` kopiert. Der Sketch rechnet die Merkmale in C (eigene FFT, 20 Zeilen), löst bei einem Lautstärkesprung aus, wartet 384 ms, bildet das Fenster, quantisiert nach int8 und führt das Modell mit TensorFlow Lite Micro aus. Bei "clap" mit mindestens 60 % Wahrscheinlichkeit schaltet LED1 um.
+`train.py` erzeugt `model_data.h` (C-Array) und `features_config.h` (Bandtabelle, Fensterparameter, Quantisierungsparameter). Beides wird in `arduino/sketchbook/05-clap-model/` kopiert. Der Sketch rechnet die Merkmale in C (eigene FFT, 20 Zeilen), löst bei einem Lautstärkesprung aus, wartet 384 ms, bildet das Fenster, quantisiert nach int8 und führt das Modell mit TensorFlow Lite Micro aus. Bei "clap" mit mindestens 35 % Wahrscheinlichkeit schaltet LED1 um (ursprünglich 60 %; nach dem ersten Praxistest gesenkt, weil Schnipsen und Störgeräusche nie über 13 % kamen, Klatscher aber bis auf 0,31 herunterreichten).
 
 ## 9. Stolpersteine, die Zeit gekostet haben
 
