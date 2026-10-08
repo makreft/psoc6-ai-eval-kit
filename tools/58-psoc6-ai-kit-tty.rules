@@ -1,0 +1,8 @@
+# Serielle Ports des PSOC 6 AI Evaluation Kit (CY8CKIT-062S2-AI) fuer Nutzer in plugdev freigeben.
+# Ergaenzt 57-cypress_programmer.rules (die deckt nur die USB-Geraete fuer CMSIS-DAP ab, nicht die tty-Knoten).
+# J1: KitProg3 UART-Bridge (CMSIS-DAP Bulk f155, HID f154, Dual-UART f166)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="f154", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="f155", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="f166", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+# J2: PSOC 6 USB-Device mit Streaming-Firmware (Infineon VID 058b, alte und neue Firmware)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="058b", MODE="0660", GROUP="plugdev", TAG+="uaccess"
