@@ -32,3 +32,8 @@ zephyr/.west/
 
 # Werkzeugreste
 .playwright-mcp/
+
+# Zephyr: Build, Log und generiertes Manifest
+zephyr/build/
+zephyr/setup.log
+zephyr/manifest/
