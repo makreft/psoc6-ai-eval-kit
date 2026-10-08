@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Richtet einen schlanken Zephyr-Workspace fuer das CY8CKIT-062S2-AI ein.
-# NICHT automatisch ausgefuehrt. Laedt mehrere GB. Stand 2026-10-08, ungetestet.
+# Laedt mehrere GB. Stand 2026-10-08, erster Lauf fuer das Bluetooth-Projekt (Protokoll Abschnitt 55).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
@@ -20,7 +20,7 @@ manifest:
   projects:
     - name: zephyr
       remote: zephyrproject
-      revision: main
+      revision: v4.4.2
       import:
         name-allowlist:
           - cmsis
@@ -28,6 +28,8 @@ manifest:
           - hal_infineon
           - tflite-micro
           - picolibc
+          - mbedtls
+          - tf-psa-crypto
 YML
 .venv/bin/west init -l manifest
 .venv/bin/west update
@@ -46,6 +48,12 @@ curl -L -o sdk.tar.xz "https://github.com/zephyrproject-rtos/sdk-ng/releases/dow
 tar -xJf sdk.tar.xz && rm sdk.tar.xz
 cd "zephyr-sdk-${SDK_VER}" && ./setup.sh -t arm-zephyr-eabi -h -c
 cd "$HERE"
+
+echo "== 3b. Lokale Patches auf den Zephyr-Baum anwenden =="
+for p in "$HERE"/patches/*.patch; do
+  [ -f "$p" ] || continue
+  if git -C "$HERE/zephyr" apply --check "$p" 2>/dev/null; then git -C "$HERE/zephyr" apply "$p" && echo "angewendet: $(basename "$p")"; else echo "schon angewendet oder nicht anwendbar: $(basename "$p")"; fi
+done
 
 echo "== 4. Binaer-Blob fuer den CM0+ =="
 .venv/bin/west blobs fetch hal_infineon

@@ -1254,3 +1254,151 @@ f87cf3e Live-Viewer: Browser-Anzeige für Gesten- und Klatsch-Modus
 2ee61c9 Klatsch-Modell: Merkmale, Training, int8-Export, Inferenz mit TensorFlow Lite Micro
 ```
 Branch `main`, Autor laut globaler Git-Konfiguration (makreft). Kein Remote eingerichtet.
+
+---
+
+# Teil 6: Anwesenheit per WLAN
+
+## 52. Anforderung und Technikprüfung
+
+Marco: Die LED soll ausgehen, sobald sein Handy nicht mehr im Funkbereich des Boards ist. Keine Verbindung des Handys mit einem Board-WLAN gewünscht, lieber passives Scannen; dann: "ich würde es schon viel cooler finden, wenn der Chip der Access Point ist und nicht mein Handy oder ein WLAN-Router dafür gebraucht wird."
+
+**Was ein WLAN-Scan kann und was nicht:** `WiFi.scanNetworks()` liefert nur Access Points (Beacons). Ein Handy, das als Client in einem Heimnetz hängt, taucht in keinem Scan auf. Passive Erkennung von Clients bräuchte einen Monitor-Modus des Funkchips.
+
+**Monitor-Modus geprüft** (mit `arm-none-eabi-nm` auf der vorkompilierten `mtb-libs.a` der Board-Variante und in den WHD-Headern des Cores): Die dafür nötigen Treiberfunktionen `whd_wifi_enable_monitor_mode` und `whd_wifi_set_raw_packet_processor` fehlen sowohl in der Bibliothek als auch im Header dieser Treiberversion (COMPONENT_WIFI6). Vorhanden sind nur generische iovar/ioctl-Zugriffe und `whd_wifi_set_channel`. Selbst wenn sich der Chip damit in den Monitor-Modus schalten ließe, würde der Empfangspfad des Treibers rohe 802.11-Rahmen verwerfen. Dazu kämen MAC-Randomisierung der Handys und die Kanalbindung. Bewertung: mehrere Tage mit ungewissem Ausgang, nicht "eben kurz". Verworfen.
+
+**Alternativen bewertet:**
+1. Hotspot des Handys als Beacon, Board scannt: passiv, ohne Zugangsdaten, aber Hotspot muss an sein (iPhone schaltet ihn ohne Clients nach etwa 90 s unsichtbar).
+2. Board im Heimnetz, Ping aufs Handy: zuverlässig, braucht Zugangsdaten und feste IP.
+3. Bluetooth: ideal, aber keine Bibliothek im Arduino-Core.
+4. **Board als Access Point** (Marcos Wunsch): Handy speichert das Netz einmal, verbindet sich automatisch in Reichweite, meldet sich beim Verlassen ab. Anwesenheit = Client angemeldet. Kein Router, keine Zugangsdaten fremder Netze.
+
+**Treiberschicht für Weg 4 geprüft:** Die Arduino-Bibliothek kann `WiFi.beginAP(ssid, passwort, kanal)`, listet aber keine Clients. In `mtb-libs.a` sind vorhanden: `cy_wcm_register_event_callback` mit den Ereignissen `CY_WCM_EVENT_STA_JOINED_SOFTAP` und `CY_WCM_EVENT_STA_LEFT_SOFTAP` (liefern die MAC des Geräts), `cy_wcm_get_associated_client_list(mac_liste, anzahl)`, `cy_wcm_get_whd_interface` (nicht im öffentlichen Header, Prototyp selbst deklariert) und `whd_wifi_get_ap_client_rssi(ifp, &rssi, mac)`. Damit ist alles da. Standard-IP des AP ist 192.168.0.1 mit DHCP für die Clients.
+
+## 53. Sketch 06-presence-ap
+
+Marco: "kannst du bitte probieren, die Funktionalität entsprechend zu erweitern? Wenn das funktioniert, könnte man das ja sogar als PR in das Arduino-Projekt zurückspielen." Plan: zuerst standalone im Sketch beweisen, dann als API in die WiFi-Bibliothek des Cores einbauen und als Patch für `Infineon/arduino-core-psoc6` vorbereiten. Der PR selbst erst nach Marcos Freigabe.
+
+**Sketch** (`arduino/sketchbook/06-presence-ap/`, 496 KB Flash wegen WLAN-Stack, 30 KB RAM):
+- Access Point "AI-Eval-Kit", WPA2-Passwort `aievalkit2026`, Kanal 6, LED2 an = AP läuft.
+- Ereignis-Callback merkt An- und Abmeldungen (läuft im Treiber-Thread, Ausgabe im `loop()`).
+- Jede Sekunde Client-Liste abfragen, je Client die Signalstärke, optional auf eine MAC (`PHONE_MAC`) einschränken. Anwesend = mindestens ein Client, LED1 entsprechend. Optionale Karenzzeit `GRACE_MS`.
+- Konsole: `AP ssid=.. ip=.. kanal=..`, `CLIENT join|leave <mac>`, `PRAESENZ an|aus clients=n rssi=.. dBm <mac>`, alle 10 s `STATUS ...`, jede Sekunde `P,<rssi>,<clients>` für den Viewer.
+
+Kompilierfehler unterwegs: `cy_wcm_get_whd_interface` ist in `cy_wcm.h` nicht deklariert, obwohl die Funktion in der Bibliothek liegt; Prototyp im Sketch ergänzt.
+
+**Viewer:** neuer Modus "Anwesenheit per Access Point": Hero "anwesend/abwesend" mit Geräteanzahl, Signalstärke und MAC; Diagramm der Signalstärke der letzten 10 Minuten mit Anwesenheitsband und Markierungen für An-/Abmeldungen; Hinweis mit SSID, IP und Kanal. Mitschnitt-Zeilen `P` (Signal) und `E` (Ereignisse).
+
+## 54. Klarstellung: Erkennung ohne jede Anmeldung des Handys
+
+Marco: "ich will, dass das Board checkt, sobald mein Handy in der Nähe ist, ohne dass ich mich damit connecten muss." Damit ist der Access-Point-Weg (Abschnitt 53) nicht das Gewünschte, auch wenn er technisch funktioniert (AP "AI-Eval-Kit" vom Laptop aus sichtbar, Kanal 6, WPA2). Praktischer Nachteil wäre ohnehin: Das Handy verliert in Reichweite des Boards sein Internet, weil es ins Board-WLAN wechselt.
+
+**Was ein Handy von sich aus funkt, und was das Board davon sehen kann:**
+| Signal des Handys | Sichtbar für dieses Board? |
+|---|---|
+| WLAN-Datenverkehr im Heimnetz | Nein: bräuchte Monitor-Modus, fehlt im Treiber des Arduino-Cores (Abschnitt 52); zudem MAC-Randomisierung |
+| WLAN-Probe-Requests | Nein: dito, und seit iOS 14 / Android 10 mit Zufalls-MAC, also nicht dem Gerät zuzuordnen |
+| Hotspot des Handys (Beacons) | Ja: `WiFi.scanNetworks()` liefert SSID, BSSID, Signalstärke. Handy muss den Hotspot anhaben |
+| BLE-Advertisements (Apple Continuity, Android Nearby, Beacon-Apps) | Nur mit Bluetooth-Stack. Arduino-Core: keiner. MicroPython-Port: keiner (Quickref geprüft, nur WLAN). Zephyr: BT-HCI-Treiber für Infineon-Chips vorhanden, das Board CY8CPROTO-062-4343W hat einen BT-Knoten im Devicetree, das AI-Kit nicht; BT-UART-Pins des Kits laut BSP P3_0 bis P3_3 (SCB2), Power P3_4, Wake P3_5/P4_0. Bring-up als Overlay möglich, aber unsicher und aufwendig |
+
+**Einordnung BLE:** Selbst mit BLE-Scanner ist ein bestimmtes Handy ohne Kopplung nicht sicher zu identifizieren, weil die Adressen alle 15 Minuten wechseln. Zuverlässig wird es, wenn auf dem Handy eine Beacon-App mit fester UUID läuft (dann scannt das Board nach dieser UUID) oder nach einmaliger Kopplung (dann kann das Board die Zufallsadressen auflösen). Beides wäre ein Zephyr-Projekt von mindestens einem Tag mit offenem Ausgang beim Bluetooth-Bring-up.
+
+**Fazit:** Vollständig passiv und ohne Mitwirkung des Handys geht es mit diesem Board und diesem Software-Stand nicht. Der kleinste Schritt, der die Anforderung "nichts verbinden" erfüllt: Hotspot am Handy an, Board scannt (Abschnitt 55). Entscheidung steht aus.
+
+---
+
+# Teil 7: Anwesenheit per Bluetooth (Zephyr)
+
+## 55. Entscheidung und Zephyr-Recherche
+
+Marco: "nee, dann machen wir es mit Bluetooth" und "das Board soll via Bluetooth erkennen, dass mein Handy in der Nähe ist." Zephyr ist der einzige Weg zu einem Bluetooth-Stack auf diesem Board ohne Infineon-Konto (Abschnitt 54).
+
+**Recherche in Zephyr v4.4.2 (Release vom 2026-08-07):**
+- Treiber `drivers/bluetooth/hci/hci_uart_infineon.c` mit Binding `infineon,bt-hci-uart`: lädt die Controller-Firmware (HCD-Format) per HCI über UART in den Chip, dann normaler H4-Betrieb. Die Kconfig-Auswahl `AIROC_PART` kennt `CYW43439` ausdrücklich.
+- Das Beispiel im Binding verwendet genau die Pins des AI-Kits laut Infineon-BSP: UART auf SCB2 mit P3.1 TX, P3.0 RX, P3.2 RTS, P3.3 CTS (Hardware-Flusskontrolle Pflicht für H4), REG_ON auf P3.4, Firmware-Download mit 3 MBaud.
+- Das Schwesterboard CY8CPROTO-062-4343W (gleicher PSOC 6, Murata 1DX mit CYW4343W) hat den Bluetooth-Knoten im Zephyr-Devicetree; das AI-Kit (Murata 1YN mit CYW43439) nicht. Lösung: Overlay in der Anwendung, das `uart2` mit diesen Pins und den `bt_hci_uart`-Knoten definiert.
+- Firmware-Blobs über `west blobs fetch hal_infineon` (Hinweis im Binding).
+
+**Angelegt:** `zephyr/app/ble_presence/` mit `CMakeLists.txt`, `prj.conf` (BT Observer, AIROC, CYW43439, H4), `boards/cy8ckit_062s2_ai.overlay` (Bluetooth-Knoten) und `src/main.c`: passiver BLE-Scanner, erkennt das Handy an einer iBeacon-UUID oder einem Advertisement-Namen, glättet die Signalstärke, schaltet LED1 mit Hysterese (-85 dBm an, -92 dBm aus) und 8 s Verlust-Timeout. Konsolenausgabe im Format von Sketch 06, damit der Viewer-Modus "Anwesenheit" direkt passt. Zusätzlich eine ADV-Übersicht aller Sender (ratenbegrenzt), um das eigene Handy zu identifizieren.
+
+**Handy-Seite (noch offen, hängt vom Gerät ab):** Ohne Kopplung wechseln Handys ihre Bluetooth-Adresse etwa alle 15 Minuten, deshalb braucht das Board ein stabiles Erkennungsmerkmal, das das Handy aussendet: eine Beacon-App mit fester UUID (Android: im Hintergrund möglich; iPhone: iBeacon-Advertising nur bei App im Vordergrund). Ob iPhone oder Android, ist noch nicht beantwortet.
+
+**Workspace:** `zephyr/setup.sh` auf Release v4.4.2 gesetzt und gestartet (Log `zephyr/setup.log`). Lädt Zephyr, hal_infineon, CMSIS, picolibc, tflite-micro, die Python-Abhängigkeiten und das Zephyr-SDK (ARM-Toolchain), dann die Blobs.
+
+## 56. Frage: Klatsch-Erkennung und Bluetooth parallel?
+
+Marco: "kannst du das so machen, dass die Clap-Erkennung und die BT-Erkennung parallel funktionieren?"
+
+**Rahmenbedingung:** Bluetooth gibt es nur unter Zephyr, die Klatsch-Erkennung bisher nur unter dem Arduino-Core. Zwei Firmwares können nicht gleichzeitig auf dem Chip laufen (der zweite Kern CM0+ ist in beiden Welten für ein vorgefertigtes Schlaf-Image reserviert). Parallel heißt deshalb: alles in einer Zephyr-Firmware.
+
+**Geprüft in Zephyr v4.4.2:**
+- Es gibt `drivers/audio/dmic_infineon.c` mit Binding `infineon,pdm`. Der Treiber benutzt aber `cy_pdm_pcm_v2.h`, DMA und Trigger-Mux, und Devicetree-Knoten dafür existieren nur in `dts/arm/infineon/edge/pse84/` (PSOC Edge). Der PSOC 6 hat den PDM-PCM-Block v1 (`cy_pdm_pcm.h` im PDL), dafür gibt es in Zephyr weder Treiber noch Knoten.
+- Die PDL-Funktionen für den v1-Block (`Cy_PDM_PCM_Init`, FIFO, Interrupts) liegen im Modul hal_infineon vor. Ein eigener Minimaltreiber (Takt für den Audio-Block, Init, FIFO-Interrupt, Lesen in Puffer) ist machbar, geschätzt 150 bis 250 Zeilen, Risiko beim Audio-Takt (24,576 MHz über PLL/clk_hf1, in der Arduino-Bibliothek von der HAL erledigt).
+- TensorFlow Lite Micro ist im Zephyr-Manifest 4.4 nicht mehr als Modul enthalten. Die Quellen aus der Arduino-Bibliothek Chirale_TensorFLowLite (reiner TFLM-Baum, 215 Dateien) lassen sich als Zephyr-Bibliothek in die Anwendung einbinden.
+- Merkmalsberechnung (`features`, eigene FFT) ist reines C und portiert sich direkt.
+
+**Plan, falls gewünscht:**
+1. Bluetooth-Anwesenheit unter Zephyr zum Laufen bringen (Abschnitt 55, läuft).
+2. PDM-Treiber für den PSOC 6 in Zephyr schreiben, zuerst mit dem regelbasierten Klatsch-Detektor als Test (kein Modell).
+3. Merkmale und TFLM-Modell portieren, Klatsch-Modell unter Zephyr.
+4. Beides in einer Anwendung mit zwei Threads: Scanner und Audio.
+Aufwand: Schritt 1 heute, Schritte 2 bis 4 ein bis zwei Tage, mit dem PDM-Takt als größtem Risiko. Entscheidung steht aus.
+
+**Entscheidung (Marco):** voller Weg, also alles in einer Zephyr-Firmware. Handy ist ein Android. Marco ist vorerst weg; die folgenden Schritte laufen ohne Rückfrage, solange sie keine Hardware-Mitwirkung brauchen: Zephyr-Build und Flash, Bluetooth-Bring-up (Scanner sieht auch ohne Handy fremde BLE-Geräte, das reicht als Nachweis), danach der Mikrofontreiber. Beacon-App für Android: "Beacon Simulator" (iBeacon mit frei wählbarer UUID, läuft im Hintergrund), UUID aus `main.c`.
+
+## 57. Zephyr-Workspace steht, Toolchain auf dem Board verifiziert
+
+`zephyr/setup.sh` ist in etwa 20 Minuten durchgelaufen (Zephyr v4.4.2, Module hal_infineon, cmsis, cmsis_6, picolibc; Python-Abhängigkeiten; Zephyr-SDK 1.0.1 nur mit ARM-Toolchain; Blobs für hal_infineon inklusive Bluetooth- und WLAN-Firmware; OpenOCD aus `tools/openocd` per `west config` eingetragen). Workspace unter `zephyr/` (im Repo ausgeschlossen, nur `app/`, `README.md`, `setup.sh` sind versioniert).
+
+**Testbuild hello_world:**
+```
+west build -p always -b cy8ckit_062s2_ai/cy8c624abzi_s2d44 -d build/hello zephyr/samples/hello_world
+FLASH: 42708 B (2,04 %), RAM: 18636 B (1,78 %), Build 13 s
+west flash -d build/hello
+wrote 43008 bytes ... in 0.502876s
+```
+Konsole (über den Ereignisstrom von Marcos laufendem Viewer mitgelesen, weil der den Port hält): `*** Booting Zephyr OS build v4.4.2 ***` und `Hello World! cy8ckit_062s2_ai/cy8c624abzi_s2d44`. Damit funktioniert die komplette Kette: west, SDK, Board-Definition, Flash über unser OpenOCD, Konsole an J1.
+
+Nützlich für später: `tools/flash.sh reset` setzt das Board auch unter Zephyr sauber zurück; die Zephyr-Konsole liegt auf derselben KitProg3-Schnittstelle mit 115200 Baud wie bisher.
+
+## 58. Bluetooth-Anwendung: Build-Hürden und Lösungen
+
+Vier Anläufe bis zum ersten erfolgreichen Build von `app/ble_presence` (am Ende 81.512 Bytes Flash, 41.940 Bytes RAM, Build 21 s):
+
+1. **Devicetree: "undefined node label 'uart2'".** Das Schwesterboard-Beispiel aus dem Binding verwendet `&uart2`, aber die cat1a-Boards in Zephyr 4.4 definieren UARTs anders: Die SCB-Knoten heißen `scb0` bis `scb8`, und das Board weist sie zu, z. B. `uart5: &scb5 { compatible = "infineon,uart"; ... }`. Das Overlay macht es jetzt genauso: `uart2: &scb2 { compatible = "infineon,uart"; ... }` mit den Pinctrl-Knoten `p3_1_scb2_uart_tx`, `p3_0_scb2_uart_rx`, `p3_2_scb2_uart_rts`, `p3_3_scb2_uart_cts` (existieren im SoC-DTS) und `hw-flow-control`.
+2. **Kconfig: "PSA_CRYPTO ... direct dependencies 0".** Der Bluetooth-Host wählt `BT_HOST_CRYPTO`, das PSA-Krypto aus dem Modul mbedtls braucht. Das schlanke Manifest hatte mbedtls nicht in der Allowlist. Ergänzt; Hinweis: `west update <projekt>` geht für importierte Projekte nicht, nur ein volles `west update`.
+3. **CMake: "tf-psa-crypto ... not an existing directory".** mbedtls 4 in Zephyr 4.4 braucht zusätzlich das Projekt `tf-psa-crypto` (Pfad `modules/crypto/tf-psa-crypto`). Ebenfalls in die Allowlist (auch in `setup.sh` für künftige Neuaufsetzungen).
+4. **Compiler: "__device_dts_ord_108 undeclared" in `hci_uart_infineon.c`.** Ordnungsnummer 108 ist laut `devicetree_generated.h` der GPIO-Port 3 (`gpio@40310180`), den der Treiber für die REG_ON-Leitung braucht. Das Board-DTS aktiviert nur die Ports 5 und 10 (LEDs, Taster, I2C). Overlay aktiviert jetzt `gpio_prt3` und `gpio_prt4`.
+
+Zweite LED: Das Board-DTS hat nur den Alias `led0` (P5.3); LED2 (P5.4) existiert als Knoten `user_led1` ohne Alias, im Code daher `DT_NODELABEL(user_led1)`.
+
+## 59. Bluetooth läuft: der Controller braucht nach dem Firmware-Start mehr Zeit
+
+**Erster Flash:** Zephyr bootet, dann `ASSERTION FAIL [err == 0] @ hci_core.c:482` und `Controller unresponsive, command opcode 0x0c03 timeout with err -11`. Der Bluetooth-Host bekam auf das HCI-Reset keine Antwort.
+
+**Diagnose mit Treiber-Debug-Logs** (`CONFIG_BT_HCI_DRIVER_LOG_LEVEL_DBG=y`, zusätzlich `CONFIG_AIROC_AUTOBAUD_MODE=n` ausdrücklich gesetzt und BT_DEVICE_WAKE P3.5 vorsorglich hoch gezogen):
+- Power-on und erstes HCI-Reset bei 115200 Baud: Antwort kommt.
+- Umschalten auf 3 MBaud und Firmware-Download (HCD, Befehle 0xFC4C Write RAM und 0xFC4E Launch RAM): "Fw downloading complete" nach etwa 100 ms.
+- Danach wartet der Treiber `BT_STABILIZATION_DELAY_MS` = 250 ms, stellt die Host-UART auf 115200 zurück und sendet das zweite HCI-Reset. Darauf kam nichts mehr. Der CYW43439 startet seine Firmware nach Launch RAM offenbar langsamer als der CYW4343W, für den der Treiber entwickelt wurde; das Reset ging ins Leere, und der Host wartet ohne Wiederholung 10 s auf Antwort.
+
+**Fix:** `BT_STABILIZATION_DELAY_MS` in `drivers/bluetooth/hci/hci_uart_infineon.c` von 250 auf 1000 ms. Danach:
+```
+*** Booting Zephyr OS build v4.4.2 ***
+Bluetooth-Anwesenheit (Zephyr) auf dem CY8CKIT-062S2-AI
+Bluetooth bereit
+AP ssid=BLE-Scan ip=none kanal=0
+Scanne passiv. Ziel: iBeacon-UUID oder Name "AI-Eval-Kit-Handy". LED1 = anwesend.
+ADV 0A:3A:D7:7F:08:E4 (random) -57 other
+ADV 79:46:99:2A:28:A8 (random) -61 apple
+ADV 49:94:D9:C9:52:77 (random) -73 apple
+...
+```
+Der passive Scanner sah in 30 s rund 25 verschiedene BLE-Sender zwischen -57 und -91 dBm, die meisten mit Apple-Herstellerdaten und Zufallsadressen (das sind iPhones, Watches, AirPods in der Nachbarschaft). Die Zeilen `P,-100,0` laufen im Sekundentakt, der Viewer schaltet in den Anwesenheits-Modus und zeigt die Hinweiszeile. Kein Ziel erkannt, weil noch keine Beacon-App sendet.
+
+Ein Fehlversuch dazwischen: Mein `sed` hatte aus `(250u)` ein `(1000)u)` gemacht, Kompilierfehler, von Hand korrigiert.
+
+**Dauerhaft gesichert:** Die Treiberänderung liegt als `zephyr/patches/0001-bt-hci-uart-infineon-longer-stabilization-delay.patch` im Repo, `setup.sh` wendet alle Patches nach `west update` an. Für Zephyr upstream wäre das ein Kandidat: entweder eine längere Standardzeit für CYW43439 oder eine Kconfig-Option `BT_AIROC_STABILIZATION_DELAY_MS`. Bei 4343W-Boards stört ein längeres Warten nicht, es kostet nur 750 ms beim Start.
+
+**Zahlen:** Anwendung 81.564 Bytes Flash (inklusive BT-Firmware-Blob und Host-Stack), 41.940 Bytes RAM. Build 21 s, Flash 0,8 s, Bluetooth bereit etwa 2,5 s nach Reset.
+
+**Für den Handy-Test (Android):** App "Beacon Simulator" (Vincent Hiribarren, Play Store), neuen iBeacon anlegen mit UUID `A1E7A14B-1700-4A1C-9E5A-0C620000C147`, Major/Minor beliebig, Sendeleistung normal, Beacon starten (läuft im Hintergrund weiter). Alternativ ein Advertisement mit Gerätename `AI-Eval-Kit-Handy`. Beide Kennungen stehen in `zephyr/app/ble_presence/src/main.c`.

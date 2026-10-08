@@ -18,6 +18,9 @@ import serial
 
 INFER_RE = re.compile(r'^#(\d+)\s+(.*?)\s*->\s*(\S+)\s*$')
 CLAP_RE = re.compile(r'^KLATSCH #(\d+)\s+Dauer (\d+) ms\s+Peak (\d+)\s+x([\d.]+)\s+LED1 (an|aus)(?:\s+ZCR (\d+))?(?:\s+Abkl\. (\d+) ms)?')
+PRESENCE_RE = re.compile(r'^PRAESENZ (an|aus)\s+clients=(\d+)(?:\s+rssi=(-?\d+) dBm\s+(\S+))?')
+CLIENT_RE = re.compile(r'^CLIENT (join|leave) (\S+)')
+AP_RE = re.compile(r'^AP ssid=(\S+) ip=(\S+) kanal=(\d+)')
 MODEL_RE = re.compile(r'^MODELL\s+(.*?)\s*->\s*(\S+)\s+Inferenz ([\d.]+) ms')
 REJECT_RE = re.compile(r'^VERWORFEN\s+Dauer (\d+) ms\s+Peak (\d+)\s+x([\d.]+)\s+Grund: (.*?)(?:\s+ZCR (\d+))?(?:\s+Abkl\. (\d+) ms)?\s*$')
 PAIR_RE = re.compile(r'(\S+?)=([-\d.]+)')
@@ -25,7 +28,7 @@ PAIR_RE = re.compile(r'(\S+?)=([-\d.]+)')
 clients_lock = threading.Lock()
 clients = []            # eine Queue pro SSE-Client
 state = {"port": None, "connected": False, "frames": 0, "inferences": 0, "labels": [], "started": time.time()}
-pending = {"frames": [], "inf": [], "log": [], "level": [], "clap": [], "reject": [], "model": []}
+pending = {"frames": [], "inf": [], "log": [], "level": [], "clap": [], "reject": [], "model": [], "pres": [], "presev": []}
 pending_lock = threading.Lock()
 
 
@@ -97,6 +100,22 @@ def handle_line(line, log):
         push("clap", ev)
         if log: log.write(f"{t:.3f},K,{ev['n']},{ev['dur']},{ev['peak']},{ev['ratio']},{int(ev['led1'])},{ev['zcr']},{ev['decay']}\n")
         push("log", line)
+        return
+    if line.startswith("P,"):
+        try:
+            rssi, n = (int(x) for x in line[2:].split(",")[:2])
+        except ValueError:
+            return
+        push("pres", [round(t, 3), rssi, n])
+        if log: log.write(f"{t:.3f},P,{rssi},{n}\n")
+        return
+    m = PRESENCE_RE.match(line) or CLIENT_RE.match(line) or AP_RE.match(line)
+    if m:
+        if m.re is PRESENCE_RE: ev = {"t": round(t, 3), "kind": "presence", "on": m.group(1) == "an", "n": int(m.group(2)), "rssi": int(m.group(3)) if m.group(3) else None, "mac": m.group(4) or ""}
+        elif m.re is CLIENT_RE: ev = {"t": round(t, 3), "kind": m.group(1), "mac": m.group(2)}
+        else: ev = {"t": round(t, 3), "kind": "ap", "ssid": m.group(1), "ip": m.group(2), "channel": int(m.group(3))}
+        push("presev", ev); push("log", line)
+        if log: log.write(f"{t:.3f},E,{ev['kind']},{ev.get('mac', ev.get('ssid', ''))}\n")
         return
     m = MODEL_RE.match(line)
     if m:
@@ -250,8 +269,9 @@ th{color:var(--ink2);font-weight:600}
 .log{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink2);white-space:pre-wrap;max-height:120px;overflow:auto;margin:0}
 .hidden{display:none}
 .note{color:var(--muted);font-size:13px}
-body[data-mode="clap"] .only-gesture{display:none}
+body[data-mode="clap"] .only-gesture, body[data-mode="presence"] .only-gesture{display:none}
 body:not([data-mode="clap"]) .only-clap{display:none}
+body:not([data-mode="presence"]) .only-presence{display:none}
 </style>
 </head>
 <body>
@@ -280,6 +300,12 @@ body:not([data-mode="clap"]) .only-clap{display:none}
     <h2>Lautstärke, letzte 10 s (RMS, logarithmisch)</h2>
     <div class="legend"><span><i class="line" style="background:var(--c1)"></i>Pegel</span><span><i class="line" style="background:var(--muted)"></i>Grundrauschen</span><span><i class="line" style="background:var(--c2);width:2px;height:12px"></i>Klatscher</span><span><i class="line" style="background:var(--axis);width:2px;height:12px"></i>verworfen</span></div>
     <canvas id="lvl" height="200"></canvas>
+  </section>
+  <section class="card only-presence">
+    <h2>Signalstärke des Handys, letzte 10 Minuten (dBm)</h2>
+    <div class="legend"><span><i class="line" style="background:var(--c1)"></i>RSSI stärkster Client</span><span><i style="background:var(--c1);opacity:.35"></i>anwesend</span><span><i class="line" style="background:var(--c2);width:2px;height:12px"></i>An-/Abmeldung</span></div>
+    <canvas id="prs" height="200"></canvas>
+    <p class="note" id="apnote"></p>
   </section>
   <section class="card only-clap hidden" id="modelcard">
     <h2>Modell: letzte Entscheidung</h2>
@@ -346,9 +372,44 @@ let levels = [];                 // [t, rms, floor], letzte 10 s
 let claps = [];                  // {t, n, dur, peak, ratio, led1}, letzte 60 s
 let rejects = [];                // {t, dur, peak, ratio, why}, letzte 60 s
 let led1State = null;
+let pres = [];                   // [t, rssi, n], letzte 10 min
+let presEv = [];                 // {t, kind, ...}
+let apInfo = null;
 function setMode(m){ if (mode === m) return; mode = m; document.body.dataset.mode = m;
-  $('herotitle').textContent = m === 'clap' ? 'Klatsch-Schalter' : 'Erkannte Geste';
-  $('led1t').textContent = m === 'clap' ? 'LED1: Schalter' : 'LED1: shaking'; }
+  $('herotitle').textContent = m === 'clap' ? 'Klatsch-Schalter' : m === 'presence' ? 'Anwesenheit per Access Point' : 'Erkannte Geste';
+  $('led1t').textContent = m === 'clap' ? 'LED1: Schalter' : m === 'presence' ? 'LED1: anwesend' : 'LED1: shaking'; }
+function applyPresence(ev){
+  if (ev.kind === 'ap') { apInfo = ev; $('apnote').textContent = 'WLAN "' + ev.ssid + '", IP ' + ev.ip + ', Kanal ' + ev.channel; return; }
+  if (ev.kind === 'presence') {
+    $('hval').textContent = ev.on ? 'anwesend' : 'abwesend';
+    $('hsw').style.background = ev.on ? css('--c1') : css('--muted');
+    $('hsub').textContent = ev.n + (ev.n === 1 ? ' Gerät' : ' Geräte') + (ev.rssi != null ? '  ·  ' + ev.rssi + ' dBm  ·  ' + ev.mac : '');
+    const el = $('led1'); el.classList.toggle('on', ev.on); el.querySelector('.bulb').style.background = ev.on ? css('--c1') : 'transparent';
+  }
+}
+function drawPresence(now){
+  const c = $('prs'); if (!c.offsetParent) return; const { ctx, w, h } = setupCanvas(c);
+  const span = 600, padL = 44, padR = 16, padT = 8, padB = 22, pw = w - padL - padR, ph = h - padT - padB;
+  ctx.clearRect(0, 0, w, h);
+  const lo = -100, hi = -20;
+  const x = t => padL + pw - (now - t) / span * pw, y = v => padT + ph - (v - lo) / (hi - lo) * ph;
+  /* anwesend-Band aus den P-Zeilen (n > 0) */
+  ctx.fillStyle = css('--c1'); ctx.globalAlpha = 0.18;
+  let runStart = null;
+  for (let i = 0; i <= pres.length; i++) { const on = i < pres.length && pres[i][2] > 0;
+    if (on && runStart == null) runStart = pres[i][0];
+    if (!on && runStart != null) { const x0 = Math.max(padL, x(runStart)), x1 = Math.min(padL + pw, x(i < pres.length ? pres[i][0] : now)); if (x1 > x0) ctx.fillRect(x0, padT, x1 - x0, ph); runStart = null; } }
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1; ctx.fillStyle = css('--muted'); ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'right';
+  for (const v of [-100, -80, -60, -40]) { const yy = Math.round(y(v)) + 0.5; ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + pw, yy); ctx.stroke(); ctx.fillText(String(v), padL - 6, yy + 4); }
+  ctx.textAlign = 'center'; for (let s = 0; s <= span; s += 120) ctx.fillText(s === 0 ? 'jetzt' : '-' + (s / 60) + ' min', padL + pw - s / span * pw, h - 6);
+  ctx.strokeStyle = css('--c2'); ctx.lineWidth = 2;
+  for (const ev of presEv) { if (ev.kind !== 'join' && ev.kind !== 'leave') continue; const xx = x(ev.t); if (xx < padL) continue; ctx.beginPath(); ctx.moveTo(xx, padT); ctx.lineTo(xx, padT + ph); ctx.stroke(); }
+  ctx.strokeStyle = css('--c1'); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.beginPath(); let st = false;
+  for (const p of pres) { if (p[2] <= 0) { st = false; continue; } const xx = x(p[0]); if (xx < padL) continue; const yy = y(Math.max(lo, Math.min(hi, p[1]))); if (!st) { ctx.moveTo(xx, yy); st = true; } else ctx.lineTo(xx, yy); }
+  ctx.stroke();
+  if (pres.length && pres[pres.length - 1][2] > 0) { const p = pres[pres.length - 1]; const yy = y(Math.max(lo, Math.min(hi, p[1]))); ctx.fillStyle = css('--c1'); ctx.beginPath(); ctx.arc(padL + pw, yy, 4, 0, 7); ctx.fill(); ctx.strokeStyle = css('--surface'); ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = css('--ink2'); ctx.textAlign = 'right'; ctx.fillText(p[1] + ' dBm', padL + pw - 8, yy - 8); }
+}
 const hover = { tl: null, acc: null, gyr: null };
 
 /* Theme-Umschalter: data-theme gewinnt gegen die OS-Einstellung; ?theme=dark|light setzt es vorab */
@@ -561,10 +622,12 @@ function tick(){
   while (levels.length && now - levels[0][0] > 10.5) levels.shift();
   while (claps.length > 1 && now - claps[1].t > 60.5) claps.shift();
   while (rejects.length && now - rejects[0].t > 60.5) rejects.shift();
-  drawLevel(now); drawClapStrip(now);
+  while (pres.length && now - pres[0][0] > 605) pres.shift();
+  while (presEv.length && now - presEv[0].t > 605) presEv.shift();
+  drawLevel(now); drawClapStrip(now); drawPresence(now);
   while (frames.length && now - frames[0][0] > 10.5) frames.shift();
   while (infs.length && now - infs[0].t > 60.5) infs.shift();
-  if (mode !== 'clap') { drawTimeline(now); drawLines('acc', [1, 2, 3], 20, now); drawLines('gyr', [4, 5, 6], 250, now); }
+  if (mode !== 'clap' && mode !== 'presence') { drawTimeline(now); drawLines('acc', [1, 2, 3], 20, now); drawLines('gyr', [4, 5, 6], 250, now); }
   requestAnimationFrame(tick);
 }
 let clockOffset = 0;  /* Differenz Browser-Uhr zu Server-Zeitstempeln */
@@ -619,10 +682,12 @@ es.onmessage = ev => {
   if (m.clap && m.clap.length) { setMode('clap'); for (const ev of m.clap) { claps.push(ev); applyClap(ev); } }
   if (m.reject && m.reject.length) { setMode('clap'); for (const ev of m.reject) rejects.push(ev); }
   if (m.model && m.model.length) { setMode('clap'); for (const ev of m.model) applyModel(ev); }
+  if (m.pres && m.pres.length) { setMode('presence'); if (!clockOffset) clockOffset = Date.now() / 1000 - m.pres[m.pres.length - 1][0]; for (const p of m.pres) pres.push(p); }
+  if (m.presev && m.presev.length) { setMode('presence'); for (const ev of m.presev) { presEv.push(ev); applyPresence(ev); } }
   if (m.log && m.log.length) { const l = $('log'); for (const s of m.log) l.textContent += s + '\n'; l.scrollTop = l.scrollHeight; }
   if (m.stats) { $('dot').className = 'dot ' + (m.stats.connected ? 'on' : 'off'); $('conn').textContent = (m.stats.connected ? 'verbunden: ' : 'getrennt: ') + String(m.stats.port || '?').replace(/^.*\//, '');
     $('fps').textContent = fpsCount; $('ips').textContent = ipsCount; $('tot').textContent = m.stats.inferences; fpsCount = 0; ipsCount = 0;
-    $('rawnote').textContent = (rawSeen || mode === 'clap') ? '' : 'Keine Rohdaten empfangen: im Sketch STREAM_RAW_FRAMES auf 1 setzen, sonst bleiben die Sensordiagramme leer.'; }
+    $('rawnote').textContent = (rawSeen || mode === 'clap' || mode === 'presence') ? '' : 'Keine Rohdaten empfangen: im Sketch STREAM_RAW_FRAMES auf 1 setzen, sonst bleiben die Sensordiagramme leer.'; }
 };
 es.onerror = () => { $('dot').className = 'dot off'; $('conn').textContent = 'Verbindung zum Viewer verloren'; };
 $('tbl').addEventListener('click', updateTable);

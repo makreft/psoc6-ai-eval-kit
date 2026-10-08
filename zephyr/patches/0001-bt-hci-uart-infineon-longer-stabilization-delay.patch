@@ -1,0 +1,13 @@
+diff --git a/drivers/bluetooth/hci/hci_uart_infineon.c b/drivers/bluetooth/hci/hci_uart_infineon.c
+index 0a4e8adfcd7..15266a5e42e 100644
+--- a/drivers/bluetooth/hci/hci_uart_infineon.c
++++ b/drivers/bluetooth/hci/hci_uart_infineon.c
+@@ -38,7 +38,7 @@ BUILD_ASSERT(DT_PROP(DT_INST_BUS(0), hw_flow_control) == 1,
+ #define BT_POWER_CBUCK_DISCHARGE_TIME_MS  (300u)
+ 
+ /* Stabilization delay after FW loading */
+-#define BT_STABILIZATION_DELAY_MS         (250u)
++#define BT_STABILIZATION_DELAY_MS         (1000u)
+ 
+ /* HCI Command packet from Host to Controller */
+ #define HCI_COMMAND_PACKET                (0x01)
