@@ -1,0 +1,34 @@
+# Heruntergeladene Werkzeuge (Bezugsquellen in SETUP-PROTOKOLL.md Abschnitt 9 und 29)
+tools/openocd/
+tools/fw-loader/
+tools/kp-firmware/
+tools/arduino-cli/
+
+# Arduino: Core, Toolchain, Bibliotheken und Build-Artefakte (arduino-cli core install / lib install stellt sie wieder her)
+arduino/.arduino15/
+arduino/sketchbook/libraries/
+arduino/sketchbook/*/build/
+*.openocd.log
+
+# Python
+ml/.venv/
+ml/clap/out/saved_model/
+__pycache__/
+*.pyc
+
+# Infineon-Beispiel als Referenz: eigenes Repo mit 51 MB, siehe README.md (git clone)
+examples/
+
+# Zephyr-Workspace (wird von zephyr/setup.sh angelegt)
+zephyr/.venv/
+zephyr/zephyr/
+zephyr/modules/
+zephyr/sdk/
+zephyr/manifest/.west/
+zephyr/.west/
+
+# Mitschnitte im Projektstamm (Kopien liegen bei den Sketches)
+/*.csv
+
+# Werkzeugreste
+.playwright-mcp/
