@@ -1461,3 +1461,9 @@ Damit ist die Funkreichweite das Kriterium, nicht die Entfernung innerhalb der R
 Praktische Grenzen: Ein Board deckt mit BLE etwa 10 bis 20 m durch Wände ab (gemessen: Nachbarraum noch -84 dBm). Für eine größere Wohnung braucht es entweder einen zentralen Standort oder mehrere Boards. Außerdem muss nRF Connect auf dem Handy dauerhaft senden dürfen (Akku-Optimierung aus), sonst "verlässt" das Handy beim Sperren des Bildschirms scheinbar das Haus.
 
 Gebaut und geflasht. Schaltlogik für echtes Licht (Relais, Funksteckdose, Smart-Home-Schnittstelle) ist der nächste Schritt nach dem Zusammenführen mit der Klatsch-Erkennung.
+
+## 64. Mikrofon unter Zephyr: erster Build
+
+`app/clap_rules` kompiliert beim ersten Anlauf durch (Pins `P10_4`/`P10_5` und die HAL-Taktfunktionen sind über die vorhandenen Include-Pfade erreichbar). Nur der Linker meckerte: `cyhal_pdmpcm.c` referenziert sechs Funktionen des HAL-DMA-Treibers (`cyhal_dma_free`, `is_busy`, `enable_event`, `configure`, `enable`, `start_transfer`), den Zephyr für CAT1A nicht mitbaut. Die Aufrufe liegen nur im asynchronen Lesepfad, den die Anwendung nicht nutzt. Lösung: `src/cyhal_dma_stub.c` mit leeren Implementierungen, die Fehler zurückgeben. Ergebnis: 64.344 Bytes Flash, 33.496 Bytes RAM.
+
+Noch nicht geflasht, weil Marco gerade die Bluetooth-Anwendung auf dem Board testet; das Board kann nur eine Firmware tragen. Offen bleibt damit die Praxisfrage, ob die HAL-Taktreservierung (PLL0, HF1) neben Zephyrs Clock-Control funktioniert und ob das FIFO-Polling alle 2 ms ohne Verluste durchkommt.

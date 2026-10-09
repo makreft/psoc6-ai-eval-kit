@@ -9,6 +9,7 @@ set(PDL_DIR ${ZEPHYR_HAL_INFINEON_MODULE_DIR}/mtb-pdl-cat1)
 target_sources(app PRIVATE
   src/main.c
   src/mic.c
+  src/cyhal_dma_stub.c
   ${HAL_DIR}/source/cyhal_pdmpcm.c
   ${HAL_DIR}/source/cyhal_audio_common.c
   ${PDL_DIR}/drivers/source/cy_pdm_pcm.c
