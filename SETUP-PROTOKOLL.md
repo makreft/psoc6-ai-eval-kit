@@ -1561,3 +1561,21 @@ DIAG bloecke=245 fifo=33   (alle 2 s: +251 Bloecke = 125,5 Bloecke/s = 16.064 Sa
 Takt und Abtastrate stimmen (PLL 24,57 MHz, 16 kHz), das FIFO wird per Polling alle 2 ms geleert (Füllstand 33 bis 34 Wörter), keine Überläufe im Betrieb. Die HAL-Taktreservierung funktioniert neben Zephyrs Clock-Control. Build 64.696 Bytes Flash.
 
 **Pegelmaßstab noch offen:** Die Pegel liegen um 800 bis 1.000 (RMS der 16-Bit-Skala), der Arduino-Sketch zeigte im ruhigen Büro 30 bis 50. Marco war aber während des Mitschnitts im Zug; in 46 s Zuglärm (Grundrauschen 815, Spitzen bis 2.345) hat der regelbasierte Detektor nicht ausgelöst, was für die Robustheit der Regeln spricht. Ob die Skala zum Arduino-Stand passt, zeigt ein Klatschtest in ruhiger Umgebung (ausstehend). Die absoluten Schwellen (`MIN_RMS`, `MIN_PEAK_RMS`) müssten sonst angepasst werden; die Verhältnis-Logik ist davon unabhängig.
+
+## 70. Klatsch-Modell unter Zephyr: TensorFlow Lite Micro als Teil der Anwendung
+
+`app/clap_model`: Mikrofon (HAL, wie `clap_rules`), Merkmalsberechnung und Modellaufruf aus Sketch 05 nach C++ übertragen, TFLM-Quellen direkt aus der Arduino-Bibliothek Chirale_TensorFLowLite (`arduino/sketchbook/libraries/.../src`, per CMake-Variable `TFLM_DIR` überschreibbar). 215 Quelldateien (146 .cpp, 69 .c inklusive CMSIS-NN), ausgelassen: `system_setup.cpp` und `peripherals/` (einzige Dateien mit `Arduino.h`).
+
+**Drei Hürden:**
+1. Ohne das Makro `ARDUINO` kompiliert `kernel_util.cpp` Code für dynamische Tensor-Arrays, der im statischen TFLM nicht existiert. Die Bibliothek ist für Arduino-Builds aufbereitet, bei denen `ARDUINO` immer gesetzt ist. Lösung: `ARDUINO=100` als Compiler-Define, die Arduino-Header werden trotzdem nicht gebraucht.
+2. `zephyr_library_named(tflm)` baute ein 24-MB-Archiv mit allen Symbolen, das aber nicht in der finalen Link-Zeile auftauchte (nur `libapp.a` und `libzephyr.a`). Lösung: TFLM-Quellen per `target_sources(app ...)` direkt ans Anwendungsziel, Warnungen per `set_source_files_properties` gedämpft.
+3. `M_PI` ist im strikten C++17-Modus nicht definiert; selbst definiert.
+
+**Ergebnis:** 136.524 Bytes Flash, 104.408 Bytes RAM (davon 40 KB Arena-Reserve, 12.308 genutzt; TFLM-Build etwa 80 s). Start:
+```
+Klatsch-Modell (TensorFlow Lite Micro) unter Zephyr
+Modell geladen, Arena 12308 Bytes, Eingabe 1024 Bytes
+mic: PLL0 24571429 Hz, HF1 24571429 Hz
+Mikrofon laeuft: 16 kHz mono, 16-ms-Rahmen, 32 Baender
+```
+Dieselbe Arena-Größe wie unter Arduino (12.484) bestätigt, dass dasselbe Modell mit denselben Kerneln läuft. Klatschtest steht aus (Marco im Zug, Grundrauschen um 950; der Auslöser verlangt das Sechsfache, in 30 s keine Inferenz).
