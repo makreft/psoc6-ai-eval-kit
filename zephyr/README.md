@@ -35,6 +35,12 @@ west flash -d build/ble
 ```
 Konsole: J1, 115200 Baud; `tools/live_viewer.py` zeigt den Modus "Anwesenheit per Access Point" mit Signalstärke.
 
+Handy als Sender (Android): "Beacon Simulator" läuft auf aktuellem Android nicht mehr. Stattdessen **nRF Connect for Mobile** (Nordic Semiconductor, Paket `no.nordicsemi.android.mcp`), Reiter Advertiser, neuer Eintrag:
+- Connectable aus, Advertising-Intervall 100 bis 250 ms, Tx-Power hoch.
+- Record "Manufacturer data": Company ID `004C`, Data `0215A1E7A14B17004A1C9E5A0C620000C14700010001C5` (iBeacon mit der UUID oben, Major 1, Minor 1, Tx-Power -59 dBm).
+- Alternative ohne Hex: Bluetooth-Gerätename des Handys auf `AI-Eval-Kit-Handy` setzen und im Advertiser "Device name" einschließen.
+- Akku-Optimierung für nRF Connect ausschalten, sonst stoppt Android das Senden im Hintergrund.
+
 Besonderheiten:
 - `app/ble_presence/boards/cy8ckit_062s2_ai.overlay` ergänzt den Bluetooth-Knoten (SCB2 auf P3.0 bis P3.3, REG_ON P3.4), den das Board-DTS von Zephyr nicht hat.
 - `patches/0001-bt-hci-uart-infineon-longer-stabilization-delay.patch`: Der CYW43439 braucht nach dem Firmware-Download etwa 1 s statt 250 ms, sonst bleibt das zweite HCI-Reset unbeantwortet. `setup.sh` wendet den Patch an; bei einem bestehenden Workspace `git -C zephyr apply patches/*.patch`.
