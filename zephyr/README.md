@@ -21,6 +21,19 @@ Pins: Konsole UART5 auf P5.1 (TX) / P5.0 (RX), LED0 P5.3, LED1 P5.4, Taster P5.2
 
 Für das IMU-Ziel: Zephyr hat ein TensorFlow-Lite-Micro-Modul (`modules/lib/tflite-micro`, Sample `samples/modules/tflite-micro/magic_wand` erkennt Gesten per IMU) und den BMI270-Treiber. Das wäre der direkteste Zephyr-Weg zur Bewegungserkennung.
 
+## Stand 2026-10-09: Gemeinsame Firmware "house" (Klatschen + Bluetooth)
+
+`app/house` ist das Ziel des "vollen Wegs": Klatsch-Erkennung mit dem selbst trainierten Modell und Bluetooth-Anwesenheit laufen parallel in zwei Threads. Klatschen schaltet das Licht (LED1) um, verlässt das Handy das Haus (Bluetooth nicht mehr erreichbar), geht das Licht aus; LED2 zeigt die Anwesenheit. Konsole: die Zeilen beider Teile plus `LICHT an|aus  (Grund)`; `tools/live_viewer.py` zeigt dafür die Ansicht "Haus".
+```
+west build -p always -b cy8ckit_062s2_ai/cy8c624abzi_s2d44 -d build/house app/house
+west flash -d build/house
+```
+Der Build dauert beim ersten Mal etwa 80 s (TensorFlow Lite Micro wird mitkompiliert). Handy-Adresse wie bei `bt_page_presence` in `src/bt_presence.c` (`PHONE_BT_ADDR`). Protokoll Abschnitt 71.
+
+Bausteine, einzeln lauffähig:
+- `app/clap_rules`: regelbasierter Klatsch-Detektor (Port von Sketch 03) mit dem PDM-Mikrofon über die Infineon-HAL (PLL0 auf 24,576 MHz, 16 kHz mono). Protokoll Abschnitte 64 und 69.
+- `app/clap_model`: Klatsch-Modell mit TensorFlow Lite Micro (Port von Sketch 05). Die TFLM-Quellen kommen aus der Arduino-Bibliothek `Chirale_TensorFLowLite` (CMake-Variable `TFLM_DIR`), Modell und Merkmalskonfiguration sind Kopien aus `ml/clap/out/`. Protokoll Abschnitt 70.
+
 ## Stand 2026-10-09: Anwesenheit ohne App per klassischem Bluetooth
 
 `app/bt_page_presence`: Das Board fragt alle 15 s per HCI Remote Name Request die feste klassische Bluetooth-Adresse des Handys ab (`PHONE_BT_ADDR` in `src/main.c`, Android: Settings > About phone > Status > Bluetooth address). Antwort = Handy in Reichweite und Bluetooth an, LED1 an; zwei Fehlversuche in Folge = LED1 aus. Keine App, keine Kopplung, kein Dialog auf dem Handy. Läuft im HCI-Rohmodus ohne Zephyr-Host, weil der experimentelle klassische Host bei der ersten Verbindung einfriert (Protokoll Abschnitte 65 bis 67).
@@ -42,7 +55,7 @@ cd zephyr
 west build -p always -b cy8ckit_062s2_ai/cy8c624abzi_s2d44 -d build/ble app/ble_presence
 west flash -d build/ble
 ```
-Konsole: J1, 115200 Baud; `tools/live_viewer.py` zeigt den Modus "Anwesenheit per Access Point" mit Signalstärke.
+Konsole: J1, 115200 Baud; `tools/live_viewer.py` zeigt die Ansicht "Anwesenheit" mit Signalstärke.
 
 Handy als Sender (Android): "Beacon Simulator" läuft auf aktuellem Android nicht mehr. Stattdessen **nRF Connect for Mobile** (Nordic Semiconductor, Paket `no.nordicsemi.android.mcp`), Reiter Advertiser, neuer Eintrag:
 - Connectable aus, Advertising-Intervall 100 bis 250 ms, Tx-Power hoch.
@@ -56,7 +69,7 @@ Besonderheiten:
 - Details und Fehlersuche: SETUP-PROTOKOLL.md Abschnitte 55 bis 59.
 
 ## Setup-Skript
-`setup.sh` legt alles unter `~/Dev/AI_Eval_Kit/zephyr/` an. Es lädt mehrere GB (Zephyr-Quellen, HAL, SDK) und ist noch nicht ausgeführt worden. Vorher Skript lesen.
+`setup.sh` legt alles unter `~/Dev/AI_Eval_Kit/zephyr/` an (Zephyr v4.4.2, Module, SDK, Blobs, Patches). Es lädt mehrere GB; Dauer beim ersten Lauf etwa 10 Minuten. Bei einem bestehenden Workspace ist es wiederholbar.
 
 ## Bewertung
 Mächtigster und am besten dokumentierter Open-Source-Weg, aber steilste Lernkurve (west, Kconfig, Devicetree). Lohnt sich, wenn das Board später produktiv eingesetzt werden soll.

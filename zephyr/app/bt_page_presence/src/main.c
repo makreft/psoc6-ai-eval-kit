@@ -226,6 +226,7 @@ int main(void)
 	printk("Ziel: %s, alle %d s ein Verbindungsversuch, %d Fehlversuche = abwesend\n", PHONE_BT_ADDR, PAGE_INTERVAL_MS / 1000, FAIL_LIMIT);
 
 	int64_t next = k_uptime_get();
+	uint32_t ticks = 0;
 	for (;;) {
 		int64_t now = k_uptime_get();
 		if (now >= next) {
@@ -237,6 +238,8 @@ int main(void)
 		/* zwischendurch eintreffende Ereignisse (z. B. verspaetete) leeren */
 		uint8_t ev[64], n; while (evt_wait(K_NO_WAIT, ev, &n)) { }
 		printk("P,%d,%d\n", present ? -50 : -100, present ? 1 : 0);
+		/* AP-Zeile jede Minute wiederholen, damit ein spaeter gestarteter Viewer den Modus erkennt */
+		if (++ticks % 60 == 0) printk("AP ssid=BT-Paging ip=none kanal=0\n");
 		k_msleep(1000);
 	}
 	return 0;
