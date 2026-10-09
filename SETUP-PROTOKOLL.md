@@ -1412,3 +1412,20 @@ Ein Fehlversuch dazwischen: Mein `sed` hatte aus `(250u)` ein `(1000)u)` gemacht
 **Danach:** Merkmale und TFLM-Modell nach Zephyr (TFLM-Quellen aus der Arduino-Bibliothek als Zephyr-Bibliothek), dann Zusammenführung mit `ble_presence` in eine Anwendung mit zwei Threads.
 
 **Nachtrag 2026-10-09:** "Beacon Simulator" läuft auf Marcos aktuellem Android nicht mehr (laut Marco inkompatibel, letztes Update 2020). Ersatz: nRF Connect for Mobile von Nordic, Advertiser mit Manufacturer-Data-Record (Company ID 004C, iBeacon-Payload mit der UUID) oder Gerätename `AI-Eval-Kit-Handy`; Details in `zephyr/README.md`. Akku-Optimierung für die App deaktivieren, damit das Advertising im Hintergrund weiterläuft.
+
+## 61. Handy-Test: Erkennung per Bluetooth funktioniert
+
+**App-Seite:** "Beacon Simulator" lief auf Marcos Android nicht; nRF Connect for Mobile stattdessen. Marcos Screenshot zeigte den Grund für den ersten Fehlschlag: Der Advertiser-Eintrag hatte unter "Advertising data" keinen Record, das Paket war leer (der "Display name" ist nur die Bezeichnung in der App). Mit Record "Manufacturer Specific Data", Company ID `004C`, Data `0215A1E7A14B17004A1C9E5A0C620000C14700010001C5`, Legacy-PHY, Adv. Extension aus, Intervall 250 ms, Tx-Power 1 dBm:
+```
+ADV 42:DD:05:C1:B6:6D (random) -53 ZIEL raw=1aff4c000215a1e7a14b17004a1c9e5a0c620000c14700010001c5
+PRAESENZ an  clients=1  rssi=-53 dBm  42:DD:05:C1:B6:6D (random)
+P,-50,1  P,-51,1  P,-50,1 ...
+```
+Das Board erkennt das Handy innerhalb einer Sekunde, Signalstärke neben dem Board etwa -50 dBm, LED1 an. Der Viewer zeigt "anwesend" mit Kurve.
+
+**Zwei Erkenntnisse zum Scannen unterwegs:**
+- Aktives Scannen (Scan-Antworten anfordern) akzeptiert der Controller; sinnvoll, weil Android Namen und Herstellerdaten oft in die Scan-Antwort legt.
+- Extended Scanning (`CONFIG_BT_EXT_ADV=y`) lehnt der CYW43439-Controller ab: `bt_le_scan_start` liefert -5. Das Handy muss also klassisch (legacy) senden, was in nRF Connect die Voreinstellung ist. Im Code vermerkt.
+- Zur Diagnose loggt der Scanner für Sender über -60 dBm die rohen Advertising-Bytes (vor dem Parsen gesichert, weil `bt_data_parse` den Puffer verbraucht). Dabei fiel auf, dass Marcos Handy von sich aus "Find My Device"-Pakete von Google sendet (Service-UUID FCF1), mit wechselnden Zufallsadressen; ein Beleg dafür, warum Erkennung ohne eigenes Kennzeichen nicht geht.
+
+Entfernungstest (Weggehen, Zurückkommen, Zeit bis "aus"/"an") folgt in Abschnitt 62.

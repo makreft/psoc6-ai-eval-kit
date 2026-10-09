@@ -77,6 +77,8 @@ static bool parse_cb(struct bt_data *data, void *user_data)
 static void scan_cb(const bt_addr_le_t *addr, int8_t rssi, uint8_t adv_type, struct net_buf_simple *ad)
 {
 	struct parse_ctx c = { 0 };
+	uint8_t raw[31]; uint8_t rawlen = ad->len < sizeof(raw) ? ad->len : sizeof(raw);
+	memcpy(raw, ad->data, rawlen);               /* vor dem Parsen sichern, bt_data_parse verbraucht den Puffer */
 	bt_data_parse(ad, parse_cb, &c);
 	int64_t now = k_uptime_get();
 
@@ -87,8 +89,13 @@ static void scan_cb(const bt_addr_le_t *addr, int8_t rssi, uint8_t adv_type, str
 	if (idx >= 0 && now - seen[idx].last_print >= 10000) {
 		seen[idx].last_print = now;
 		char s[BT_ADDR_LE_STR_LEN]; bt_addr_le_to_str(addr, s, sizeof(s));
-		printk("ADV %s %d %s%s%s%s\n", s, rssi, c.match ? "ZIEL" : c.ibeacon ? "ibeacon" : c.apple ? "apple" : "other",
-		       c.name[0] ? " " : "", c.name, "");
+		printk("ADV %s %d %s%s%s%s", s, rssi, c.match ? "ZIEL" : c.ibeacon ? "ibeacon" : c.apple ? "apple" : "other",
+		       c.name[0] ? " " : "", c.name, adv_type == BT_GAP_ADV_TYPE_SCAN_RSP ? " (scan-rsp)" : "");
+		if (rssi > -60) {   /* starke Sender: rohe Bytes zum Identifizieren des eigenen Handys */
+			printk(" raw=");
+			for (uint16_t i = 0; i < rawlen; i++) printk("%02x", raw[i]);
+		}
+		printk("\n");
 	}
 
 	if (!c.match) return;
@@ -132,11 +139,13 @@ int main(void)
 	printk("Bluetooth bereit\n");
 
 	struct bt_le_scan_param param = {
-		.type = BT_LE_SCAN_TYPE_PASSIVE,
+		.type = BT_LE_SCAN_TYPE_ACTIVE,          /* aktiv: Scan-Antworten anfordern, Android legt Herstellerdaten und Namen oft dorthin */
 		.options = BT_LE_SCAN_OPT_NONE,          /* Duplikate melden, damit RSSI laufend aktualisiert wird */
 		.interval = 0x0060,                      /* 60 ms */
 		.window = 0x0050,                        /* 50 ms, fast dauernd auf Empfang */
 	};
+	/* Hinweis: Extended Scanning (CONFIG_BT_EXT_ADV) lehnt der CYW43439-Controller ab (bt_le_scan_start -5).
+	 * Deshalb klassisches Scannen; das Handy muss klassisch (legacy) senden. */
 	err = bt_le_scan_start(&param, scan_cb);
 	if (err) { printk("FEHLER: bt_le_scan_start %d\n", err); for (;;) { gpio_pin_toggle_dt(&led2); k_msleep(100); } }
 	gpio_pin_set_dt(&led2, 1);                   /* LED2 an = Scanner laeuft */
