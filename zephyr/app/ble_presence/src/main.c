@@ -25,9 +25,13 @@ static const uint8_t TARGET_UUID[16] = { 0xA1, 0xE7, 0xA1, 0x4B, 0x17, 0x00, 0x4
 static const char *TARGET_NAME = "AI-Eval-Kit-Handy";     /* optional: Geraetename im Advertisement */
 /* Messung 2026-10-09 (Tx-Power 1 dBm, Intervall 250 ms): neben dem Board -50 dBm, im Raum -55 bis -70,
  * an der Reichweitengrenze (Nachbarraum) -75 bis -84, danach keine Pakete mehr. */
-#define RSSI_ON_DBM      (-72)      /* ab hier gilt "in der Naehe" (Einschalten) */
-#define RSSI_OFF_DBM     (-80)      /* darunter gilt "weg" (Ausschalten), Hysterese */
-#define LOST_TIMEOUT_MS  5000       /* ohne Advertisement so lange: weg (20 Sendeintervalle) */
+/* Anwendungsfall (Marco, 2026-10-09): Der Schalter soll an bleiben, solange das Handy irgendwo im Haus ist,
+ * und erst beim Verlassen des Hauses kippen (Licht aus). Deshalb zaehlt die Funkreichweite, nicht die Naehe:
+ * jedes empfangene Paket haelt "anwesend", die Signalstaerke schaltet nie aus (Schwellen auf -100 dBm),
+ * und erst 30 s ohne Paket gelten als "weg". Fuer eine Naehe-Variante Schwellen z. B. auf -72/-80 setzen. */
+#define RSSI_ON_DBM      (-100)     /* jedes Paket reicht zum Einschalten */
+#define RSSI_OFF_DBM     (-100)     /* Signalstaerke schaltet nicht aus */
+#define LOST_TIMEOUT_MS  30000      /* 30 s ohne Advertisement: weg (bei 250 ms Intervall 120 verpasste Pakete) */
 #define EMA_ALPHA        0.3f       /* Glaettung der Signalstaerke */
 
 static const struct gpio_dt_spec led1 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);   /* LED1 = P5.3 */

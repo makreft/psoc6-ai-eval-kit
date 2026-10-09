@@ -1448,3 +1448,16 @@ Mitschnitt 132 s (08:40 bis 08:43), Marco geht mit dem Handy in einen anderen Ra
 
 **Angepasst (gebaut und geflasht):** Einschalten ab -72 dBm, Ausschalten unter -80 dBm, Timeout 5 s (20 Sendeintervalle). Damit zählt der eigene Raum als anwesend, der Nachbarraum nicht mehr, und ein Funkabriss wird nach 5 s erkannt. Zweiter Entfernungstest steht aus.
 
+
+## 63. Anwendungsfall geschärft: Haus verlassen, nicht Raum verlassen
+
+Marco nach dem ersten Entfernungstest: "nee, das war voll ok, Nachbarraum passt. Die LED soll so lange leuchten, wie das Handy in der Nähe ist. Erst wenn ich quasi das Haus verlasse, soll der Schalter umgelegt werden und dadurch im ganzen Haus das Licht ausgeschaltet werden."
+
+Damit ist die Funkreichweite das Kriterium, nicht die Entfernung innerhalb der Reichweite. Die in Abschnitt 62 verschärften Schwellen (-72/-80) sind dafür falsch und wurden zurückgenommen:
+- Jedes empfangene Paket hält "anwesend" (Schwellen auf -100 dBm, die Signalstärke schaltet nie aus).
+- "abwesend" erst nach 30 s ohne Paket (bei 250 ms Sendeintervall 120 verpasste Pakete), damit Funklöcher im Haus den Schalter nicht kippen. Zurückkommen schaltet beim ersten Paket wieder ein.
+- Die Nähe-Variante bleibt als Kommentar im Code dokumentiert.
+
+Praktische Grenzen: Ein Board deckt mit BLE etwa 10 bis 20 m durch Wände ab (gemessen: Nachbarraum noch -84 dBm). Für eine größere Wohnung braucht es entweder einen zentralen Standort oder mehrere Boards. Außerdem muss nRF Connect auf dem Handy dauerhaft senden dürfen (Akku-Optimierung aus), sonst "verlässt" das Handy beim Sperren des Bildschirms scheinbar das Haus.
+
+Gebaut und geflasht. Schaltlogik für echtes Licht (Relais, Funksteckdose, Smart-Home-Schnittstelle) ist der nächste Schritt nach dem Zusammenführen mit der Klatsch-Erkennung.
