@@ -113,3 +113,10 @@ tools/live_viewer.py --log modell-test.csv     # http://localhost:8765
 - Mehr Vielfalt in den Daten: andere Räume, andere Personen, Abstände über einen Meter, weitere Störgeräusche (Türen, Geschirr, Musik mit Schlagzeug).
 - Fehler aus dem Betrieb gezielt nachaufnehmen (falsch erkannte Geräusche als "other", verpasste Klatscher als "clap") und nachtrainieren. Der Viewer-Mitschnitt zeigt die Zeitpunkte.
 - Schwelle und Totzeit im Sketch anhand der Mitschnitte einstellen.
+
+## Doppelklatschen: Simulation mit dem fertigen Modell
+
+Die Zephyr-Firmware `house` schaltet erst bei zwei Klatschern (Abstand 120 bis 800 ms). Da das Modell nur Einzelklatscher kennt, prüft `simulate_double.py`, ob der zweite Klatscher im Fenster des ersten das Urteil verdirbt: aus je zwei Aufnahmen aus `data/audio/clap` entsteht ein Doppelklatscher mit 150 bis 650 ms Abstand, beide Fenster laufen durch `out/clap_model.tflite`. Ergebnis (11 Paare): Fenster 1 bleibt bei p_clap 0,84 bis 0,98 im Mittel, Ausfälle nur bei einzeln schwachen Aufnahmen, Doppel-Schnipser bleiben bei 0,00 bis 0,04.
+```
+cd ml && .venv/bin/python -I clap/simulate_double.py clap clap/out ../data/audio
+```

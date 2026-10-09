@@ -1,10 +1,16 @@
 /*
- * Klatschen erkennen mit dem selbst trainierten Modell, unter Zephyr (Port von arduino/sketchbook/05-clap-model).
+ * Doppelklatschen erkennen mit dem selbst trainierten Modell, unter Zephyr (aus arduino/sketchbook/05-clap-model).
  *
- * Mikrofon ueber die Infineon-HAL (mic.c), je 16-ms-Rahmen Hann, FFT 256, 32 Mel-Baender, log10 (identisch zu
- * ml/clap/features.py). Pegelanstieg startet einen Kandidaten; 24 Rahmen spaeter wird das 32x32-Fenster
- * pegelnormiert, int8-quantisiert und durch das Modell (TensorFlow Lite Micro) geschickt.
- * Konsole wie Sketch 05: "MODELL other=.. clap=.. snap=.. -> clap  Inferenz x ms", "KLATSCH #n ...", "L,<max>,<floor>".
+ * Audio-Thread: Mikrofon ueber die Infineon-HAL (mic.c), je 16-ms-Rahmen Hann, FFT 256, 32 Mel-Baender, log10
+ * (identisch zu ml/clap/features.py). Ein Pegelanstieg startet einen Kandidaten; 24 Rahmen spaeter wird das
+ * 32x32-Fenster pegelnormiert, int8-quantisiert und per Message-Queue an den Modell-Thread gegeben. Mehrere
+ * Kandidaten duerfen sich ueberlappen (zweiter Klatscher waehrend das Fenster des ersten noch laeuft).
+ * Modell-Thread (niedrigere Prioritaet): Inferenz (TensorFlow Lite Micro, ca. 53 ms), waehrenddessen liest der
+ * Audio-Thread weiter, es geht kein Audio verloren. Zwei vom Modell bestaetigte Klatscher im Abstand von
+ * DOUBLE_MIN_MS bis DOUBLE_MAX_MS schalten das Licht um; ein einzelner wird nach Ablauf verworfen.
+ * Konsole: "MODELL other=.. clap=.. snap=.. -> clap  Inferenz x ms",
+ *          "KLATSCH #n  einzel  Konfidenz 0.72", "KLATSCH #n  doppel  Abstand 310 ms  Konfidenz 0.80  LED1 an",
+ *          "VERWORFEN einzel  Grund: kein zweiter Klatscher innerhalb 800 ms", "L,<max>,<floor>".
  */
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
@@ -26,8 +32,15 @@
 #define SUDDEN_FACTOR    3.0f
 #define MIN_RMS          (300.0f / 32768.0f)
 #define FLOOR_ALPHA      0.02f
-#define REFRACTORY_MS    400
+#define ONSET_GAP_MS     100      /* Mindestabstand zweier Kandidaten (Abklingen desselben Klatschers nicht neu zaehlen) */
 #define CLAP_THRESHOLD   0.35f
+#define DOUBLE_MIN_MS    120      /* zwei Klatscher naeher zusammen: unplausibel */
+#define DOUBLE_MAX_MS    800      /* zweiter Klatscher spaeter: der erste verfaellt */
+#define MAX_PENDING      4
+
+/* Auftrag an den Modell-Thread: fertig quantisiertes Fenster plus Zeit des Einsatzes */
+struct infer_job { int64_t onsetMs; float onsetRms; int8_t in[FEAT_N_FRAMES * FEAT_N_BANDS]; };
+K_MSGQ_DEFINE(job_q, sizeof(struct infer_job), 4, 4);
 
 extern "C" void DebugLog(const char *s) { printk("%s", s); }   /* TFLM-Logausgabe */
 
@@ -84,13 +97,17 @@ static bool model_init() {
 	inT = interp->input(0); outT = interp->output(0);
 	return inT && outT && inT->type == kTfLiteInt8 && outT->type == kTfLiteInt8;
 }
-static bool model_run(int onsetIdx, float *probs, int64_t *usec) {
+/* Audio-Thread: Fenster um den Einsatz pegelnormieren und quantisieren (wie ml/clap/features.py) */
+static void quantize_window(int onsetIdx, int8_t *q) {
 	float mx = -1e9f;
 	for (int f = 0; f < FEAT_N_FRAMES; f++) { int r = (onsetIdx - FEAT_ONSET_FRAME + f + FEAT_N_FRAMES) % FEAT_N_FRAMES; for (int b = 0; b < FEAT_N_BANDS; b++) if (logbands[r][b] > mx) mx = logbands[r][b]; }
-	int8_t *q = inT->data.int8;
 	for (int f = 0; f < FEAT_N_FRAMES; f++) { int r = (onsetIdx - FEAT_ONSET_FRAME + f + FEAT_N_FRAMES) % FEAT_N_FRAMES;
 		for (int b = 0; b < FEAT_N_BANDS; b++) { float v = (logbands[r][b] - mx + FEAT_DYN_RANGE) / FEAT_DYN_RANGE; if (v < 0) v = 0; if (v > 1) v = 1;
 			int qi = (int)lroundf(v / MODEL_IN_SCALE) + MODEL_IN_ZERO; if (qi < -128) qi = -128; if (qi > 127) qi = 127; q[f * FEAT_N_BANDS + b] = (int8_t)qi; } }
+}
+/* Modell-Thread: Inferenz auf einem fertigen Fenster */
+static bool model_run(const int8_t *in, float *probs, int64_t *usec) {
+	memcpy(inT->data.int8, in, FEAT_N_FRAMES * FEAT_N_BANDS);
 	int64_t t0 = k_uptime_ticks();
 	if (interp->Invoke() != kTfLiteOk) return false;
 	*usec = k_ticks_to_us_floor64(k_uptime_ticks() - t0);
@@ -98,36 +115,68 @@ static bool model_run(int onsetIdx, float *probs, int64_t *usec) {
 	return true;
 }
 
-/* ---------- Ablauf ---------- */
+/* ---------- Audio-Thread: Rahmen, Einsaetze, Kandidaten ---------- */
 static int16_t pcm[FEAT_FRAME]; static size_t fill = 0;
 static float noiseFloor = 0.02f, prevRms = 0.0f, windowMax = 0.0f;
-static bool pending = false; static int pendingOnset = 0, pendingWait = 0;
-static int64_t lastClapMs = 0, lastLevelMs = 0; static uint32_t claps = 0; static bool led1on = false;
+struct candidate { int onsetIdx, wait; int64_t onsetMs; float rms; };
+static struct candidate pend[MAX_PENDING]; static int nPend = 0;
+static int64_t lastOnsetMs = 0, lastLevelMs = 0; static uint32_t dropped = 0;
 
 static void process_frame() {
 	float rms = frame_features(pcm, logbands[ringHead]);
 	int idx = ringHead; ringHead = (ringHead + 1) % FEAT_N_FRAMES; frameCount++;
 	int64_t now = k_uptime_get(); float ratio = rms / noiseFloor;
-	if (!pending) {
-		if (ratio < ONSET_RATIO) noiseFloor += FLOOR_ALPHA * (rms - noiseFloor);
-		if (noiseFloor < 50.0f / 32768.0f) noiseFloor = 50.0f / 32768.0f;
-		bool loud = ratio >= ONSET_RATIO && rms >= MIN_RMS, sudden = prevRms * SUDDEN_FACTOR <= rms, fr_ = now - lastClapMs >= REFRACTORY_MS;
-		if (loud && sudden && fr_ && frameCount >= (uint32_t)FEAT_N_FRAMES) { pending = true; pendingOnset = idx; pendingWait = FEAT_N_FRAMES - FEAT_ONSET_FRAME - 1; }
-	} else if (--pendingWait <= 0) {
-		pending = false; float p[3]; int64_t us = 0;
-		if (model_run(pendingOnset, p, &us)) {
-			int best = 0; for (int c = 1; c < 3; c++) if (p[c] > p[best]) best = c;
-			printk("MODELL %s=%.2f %s=%.2f %s=%.2f -> %s  Inferenz %.1f ms\n", MODEL_CLASSES[0], (double)p[0], MODEL_CLASSES[1], (double)p[1], MODEL_CLASSES[2], (double)p[2], MODEL_CLASSES[best], (double)us / 1000.0);
-			if (p[1] >= CLAP_THRESHOLD) {
-				claps++; lastClapMs = now; led1on = house_toggle_light();
-				printk("KLATSCH #%u  Dauer 0 ms  Peak 0  x%d  LED1 %s\n", claps, (int)(p[1] * 100), led1on ? "an" : "aus");
-			}
-		}
+	if (ratio < ONSET_RATIO) noiseFloor += FLOOR_ALPHA * (rms - noiseFloor);
+	if (noiseFloor < 50.0f / 32768.0f) noiseFloor = 50.0f / 32768.0f;
+	bool loud = ratio >= ONSET_RATIO && rms >= MIN_RMS, sudden = prevRms * SUDDEN_FACTOR <= rms, gap = now - lastOnsetMs >= ONSET_GAP_MS;
+	if (loud && sudden && gap && frameCount >= (uint32_t)FEAT_N_FRAMES && nPend < MAX_PENDING) {
+		pend[nPend++] = (struct candidate){ idx, FEAT_N_FRAMES - FEAT_ONSET_FRAME - 1, now, rms }; lastOnsetMs = now;
+	}
+	/* fertige Fenster an den Modell-Thread geben (aeltester Kandidat zuerst) */
+	for (int i = 0; i < nPend; ) {
+		if (--pend[i].wait > 0) { i++; continue; }
+		struct infer_job job; job.onsetMs = pend[i].onsetMs; job.onsetRms = pend[i].rms; quantize_window(pend[i].onsetIdx, job.in);
+		if (k_msgq_put(&job_q, &job, K_NO_WAIT) != 0) dropped++;
+		for (int j = i + 1; j < nPend; j++) pend[j - 1] = pend[j];
+		nPend--;
 	}
 	prevRms = rms;
 	if (rms > windowMax) windowMax = rms;
 	if (now - lastLevelMs >= 100) { lastLevelMs = now; printk("L,%d,%d\n", (int)(windowMax * 32768.0f), (int)(noiseFloor * 32768.0f)); windowMax = 0; }
 }
+
+/* ---------- Modell-Thread: Inferenz und Doppelklatsch-Logik ---------- */
+static uint32_t claps = 0; static bool led1on = false;
+static int64_t firstMs = 0;        /* Einsatz des ersten bestaetigten Klatschers, 0 = keiner offen */
+
+static void model_thread(void *a, void *b, void *c) {
+	(void)a; (void)b; (void)c;
+	struct infer_job job;
+	for (;;) {
+		if (k_msgq_get(&job_q, &job, K_MSEC(50)) != 0) {
+			/* kein Auftrag: offenen ersten Klatscher verfallen lassen (Ergebnis des zweiten kaeme spaetestens ~450 ms nach seinem Einsatz) */
+			if (firstMs && k_uptime_get() - firstMs > DOUBLE_MAX_MS + 500) { firstMs = 0; printk("VERWORFEN einzel  Grund: kein zweiter Klatscher innerhalb %d ms\n", DOUBLE_MAX_MS); }
+			continue;
+		}
+		float p[3]; int64_t us = 0;
+		if (!model_run(job.in, p, &us)) continue;
+		int best = 0; for (int k = 1; k < 3; k++) if (p[k] > p[best]) best = k;
+		printk("MODELL %s=%.2f %s=%.2f %s=%.2f -> %s  Inferenz %.1f ms\n", MODEL_CLASSES[0], (double)p[0], MODEL_CLASSES[1], (double)p[1], MODEL_CLASSES[2], (double)p[2], MODEL_CLASSES[best], (double)us / 1000.0);
+		if (p[1] < CLAP_THRESHOLD) continue;
+		claps++;
+		int64_t gap = firstMs ? job.onsetMs - firstMs : 0;
+		if (firstMs && gap >= DOUBLE_MIN_MS && gap <= DOUBLE_MAX_MS) {
+			firstMs = 0; led1on = house_toggle_light();
+			printk("KLATSCH #%u  doppel  Abstand %d ms  Konfidenz %.2f  LED1 %s\n", claps, (int)gap, (double)p[1], led1on ? "an" : "aus");
+		} else {
+			if (firstMs) printk("VERWORFEN einzel  Grund: Abstand %d ms ausserhalb %d..%d ms\n", (int)gap, DOUBLE_MIN_MS, DOUBLE_MAX_MS);
+			firstMs = job.onsetMs;
+			printk("KLATSCH #%u  einzel  Konfidenz %.2f\n", claps, (double)p[1]);
+		}
+	}
+}
+K_THREAD_STACK_DEFINE(model_stack, 8192);
+static struct k_thread model_td;
 
 void clap_thread(void *a, void *b, void *c) {
 	(void)a; (void)b; (void)c;
@@ -137,10 +186,16 @@ void clap_thread(void *a, void *b, void *c) {
 	printk("Modell geladen, Arena %u Bytes, Eingabe %u Bytes\n", (unsigned)interp->arena_used_bytes(), (unsigned)inT->bytes);
 	if (mic_init()) { printk("FEHLER: Mikrofon\n"); for (;;) { k_msleep(200); } }
 	printk("Mikrofon laeuft: 16 kHz mono, 16-ms-Rahmen, 32 Baender\n");
-	int16_t tmp[256];
+	printk("Doppelklatschen: zwei Klatscher im Abstand %d..%d ms schalten das Licht\n", DOUBLE_MIN_MS, DOUBLE_MAX_MS);
+	/* Modell-Thread eine Stufe unter dem Audio-Thread: die Inferenz (ca. 53 ms) unterbricht das Lesen nicht */
+	k_thread_create(&model_td, model_stack, K_THREAD_STACK_SIZEOF(model_stack), model_thread, NULL, NULL, NULL, 6, 0, K_NO_WAIT);
+	k_thread_name_set(&model_td, "model");
+	int16_t tmp[256]; int64_t lastDiag = 0;
 	for (;;) {
 		size_t n = mic_read(tmp, 256);
 		for (size_t i = 0; i < n; i++) { pcm[fill++] = tmp[i]; if (fill == FEAT_FRAME) { process_frame(); fill = 0; } }
 		if (n == 0) k_msleep(2);
+		int64_t now = k_uptime_get();
+		if (dropped && now - lastDiag > 5000) { lastDiag = now; printk("WARNUNG: %u Fenster verworfen (Modell-Warteschlange voll)\n", dropped); }
 	}
 }

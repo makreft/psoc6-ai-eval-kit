@@ -1613,3 +1613,22 @@ Offen: Klatschtest mit dem Modell unter Zephyr (ruhige Umgebung), Test Bluetooth
 Ansicht "Haus": Kachel "Licht im Haus" mit Lichtzustand (aus `LICHT`-Zeilen), Handy anwesend/abwesend (LED2), dazu die Pegelkurve, die Erreichbarkeitsleiste und der Klatsch-Streifen. Fuer die Paging-Variante zeigt die Bluetooth-Kachel kein dBm mehr (die Firmware liefert keinen echten RSSI, nur erreichbar/nicht erreichbar), sondern nur das blaue Band und die Wechsel. Der Anwesenheitszustand wird auch aus den `P,`-Zeilen abgeleitet, damit ein Viewer, der nach dem Board gestartet wurde, nicht auf die naechste `PRAESENZ`-Meldung warten muss.
 
 Getestet mit Playwright gegen das laufende Board: Automatik springt nach etwa 15 s auf "Haus", Handy anwesend, LED2 an; Menue oeffnen, "Klatschen" waehlen, Ansicht wechselt und bleibt; "Automatisch" stellt zurueck. Keine Fehler in der Browser-Konsole.
+
+## 73. Doppelklatschen: zweimal klatschen schaltet, einmal nicht
+
+Marcos Wunsch (2026-10-09): Der Schalter soll erst bei zwei Klatschern umgelegt werden, damit sich Absicht von Zufall (Tuer, Gegenstand faellt, einzelner Knall) besser trennen laesst. Umgesetzt in `zephyr/app/house/src/clap.cpp`.
+
+**Zwei Aenderungen am Ablauf:**
+1. **Eigener Modell-Thread.** Bisher lief die Inferenz (53 ms) im Audio-Thread; so lange las niemand das Mikrofon-FIFO (256 Woerter = 16 ms), etwa 37 ms Audio gingen je Inferenz verloren. Bei einem Doppelklatscher koennte der zweite Klatscher genau in diese Luecke fallen. Jetzt quantisiert der Audio-Thread (Prioritaet 5) das fertige 32x32-Fenster und legt es in eine Message-Queue (4 Plaetze je 1.040 Bytes); der Modell-Thread (Prioritaet 6) rechnet, der Audio-Thread liest derweil ununterbrochen weiter.
+2. **Ueberlappende Kandidaten.** Bisher wurde waehrend der 24 Rahmen Wartezeit kein neuer Einsatz angenommen. Jetzt duerfen bis zu vier Kandidaten gleichzeitig laufen (Mindestabstand `ONSET_GAP_MS` 100 ms, damit das Abklingen desselben Klatschers nicht als neuer Einsatz zaehlt). Der Ringpuffer mit 32 Rahmen reicht, weil jedes Fenster genau in dem Moment quantisiert wird, in dem sein letzter Rahmen eintrifft.
+
+**Logik im Modell-Thread:** Jeder vom Modell bestaetigte Klatscher (p_clap >= 0,35) ist entweder der erste (merken, `KLATSCH #n  einzel  Konfidenz 0.72`) oder, wenn sein Einsatz 120 bis 800 ms (`DOUBLE_MIN_MS`, `DOUBLE_MAX_MS`) nach dem gemerkten liegt, der zweite: Licht umschalten, `KLATSCH #n  doppel  Abstand 310 ms  Konfidenz 0.80  LED1 an`. Kommt kein zweiter, verfaellt der erste nach 800 ms plus Inferenzlatenz: `VERWORFEN einzel  Grund: kein zweiter Klatscher innerhalb 800 ms`. Gerechnet wird mit den Einsatzzeiten aus dem Audio-Thread, nicht mit dem Zeitpunkt der Inferenz. Der Viewer zeigt den ersten Klatscher als halbhohen Strich und meldet "1. Klatscher erkannt, warte auf den zweiten".
+
+**Offene Frage vorab geklaert: stoert der zweite Klatscher das Fenster des ersten?** Das Modell wurde nur mit Einzelklatschern trainiert; das Fenster des ersten Klatschers (128 ms davor, 384 ms danach) enthaelt bei einem Doppelklatscher auch den zweiten. `ml/clap/simulate_double.py` mischt aus je zwei von Marcos Aufnahmen Doppelklatscher mit 150 bis 650 ms Abstand und fragt das int8-Modell fuer beide Fenster (11 Paare, Mittel p_clap Fenster 1 / Fenster 2):
+
+| Abstand | 150 ms | 200 ms | 300 ms | 400 ms | 500 ms | 650 ms |
+|---|---|---|---|---|---|---|
+| p_clap Fenster 1 / 2 | 0,98 / 0,89 | 0,88 / 0,88 | 0,84 / 0,85 | 0,88 / 0,88 | 0,87 / 0,92 | 0,87 / 0,86 |
+| beide ueber 0,35 | 91 % | 82 % | 91 % | 82 % | 82 % | 82 % |
+
+Das Urteil ueber Fenster 1 aendert sich durch den zweiten Klatscher praktisch nicht (das Modell schaut auf die Einsatzregion). Die Ausfaelle stammen von zwei einzeln schwachen Aufnahmen (eine hat allein p_clap 0,03), nicht von der Ueberlappung. Doppel-Schnipser: p_clap 0,00 bis 0,04 in allen Faellen. Die strenge Regel "beide Fenster muessen Klatscher sein" ist also tragbar; sie multipliziert allerdings die Trefferquote je Klatscher (bei 90 % je Klatscher etwa 81 % je Doppelklatscher). Sollte das im Alltag zu oft daneben gehen, waere die mildere Variante: ein bestaetigter Klatscher plus ein kraeftiger Einsatz. Firmware 149.520 Bytes Flash, 131.228 Bytes RAM; Start und beide Threads im Mitschnitt unauffaellig, Klatschtest steht weiter aus.

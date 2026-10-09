@@ -23,12 +23,12 @@ Für das IMU-Ziel: Zephyr hat ein TensorFlow-Lite-Micro-Modul (`modules/lib/tfli
 
 ## Stand 2026-10-09: Gemeinsame Firmware "house" (Klatschen + Bluetooth)
 
-`app/house` ist das Ziel des "vollen Wegs": Klatsch-Erkennung mit dem selbst trainierten Modell und Bluetooth-Anwesenheit laufen parallel in zwei Threads. Klatschen schaltet das Licht (LED1) um, verlässt das Handy das Haus (Bluetooth nicht mehr erreichbar), geht das Licht aus; LED2 zeigt die Anwesenheit. Konsole: die Zeilen beider Teile plus `LICHT an|aus  (Grund)`; `tools/live_viewer.py` zeigt dafür die Ansicht "Haus".
+`app/house` ist das Ziel des "vollen Wegs": Klatsch-Erkennung mit dem selbst trainierten Modell und Bluetooth-Anwesenheit laufen parallel in zwei Threads. Zweimal klatschen (Abstand 120 bis 800 ms, beide vom Modell bestätigt) schaltet das Licht (LED1) um, ein einzelner Klatscher verfällt; verlässt das Handy das Haus (Bluetooth nicht mehr erreichbar), geht das Licht aus; LED2 zeigt die Anwesenheit. Die Inferenz läuft in einem eigenen Thread, der Audio-Thread liest dabei weiter. Konsole: die Zeilen beider Teile plus `LICHT an|aus  (Grund)`; `tools/live_viewer.py` zeigt dafür die Ansicht "Haus".
 ```
 west build -p always -b cy8ckit_062s2_ai/cy8c624abzi_s2d44 -d build/house app/house
 west flash -d build/house
 ```
-Der Build dauert beim ersten Mal etwa 80 s (TensorFlow Lite Micro wird mitkompiliert). Handy-Adresse wie bei `bt_page_presence` in `src/bt_presence.c` (`PHONE_BT_ADDR`). Protokoll Abschnitt 71.
+Der Build dauert beim ersten Mal etwa 80 s (TensorFlow Lite Micro wird mitkompiliert). Handy-Adresse wie bei `bt_page_presence` in `src/bt_presence.c` (`PHONE_BT_ADDR`). Protokoll Abschnitte 71 und 73.
 
 Bausteine, einzeln lauffähig:
 - `app/clap_rules`: regelbasierter Klatsch-Detektor (Port von Sketch 03) mit dem PDM-Mikrofon über die Infineon-HAL (PLL0 auf 24,576 MHz, 16 kHz mono). Protokoll Abschnitte 64 und 69.

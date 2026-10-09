@@ -4,6 +4,8 @@
 Liest die KitProg3-Konsole (J1, 115200 Baud) und zeigt die Zeilen der Firmware live im Browser:
   Gesten      "#12 none=0.01 circle=0.02 shaking=0.97 -> shaking", Rohdaten "D,ax,ay,az,gx,gy,gz"
   Klatschen   "L,rms,floor", "KLATSCH #n ...", "VERWORFEN ...", "MODELL clap=0.9 ... -> clap Inferenz 53 ms"
+              Doppelklatschen (Zephyr house): "KLATSCH #n  einzel  Konfidenz 0.72",
+              "KLATSCH #n  doppel  Abstand 310 ms  Konfidenz 0.80  LED1 an", "VERWORFEN einzel  Grund: ..."
   Anwesenheit "P,rssi,n", "PRAESENZ an|aus ...", "CLIENT join|leave mac", "AP ssid=... ip=... kanal=..."
   Haus        "LICHT an|aus  (Grund)"  (Zephyr-Firmware house: Klatschen + Bluetooth zusammen)
 Die Ansicht folgt automatisch den Daten; ueber das Menue (Burger-Symbol links oben) laesst sie sich
@@ -22,6 +24,8 @@ CLAP_RE = re.compile(r'^KLATSCH #(\d+)\s+Dauer (\d+) ms\s+Peak (\d+)\s+x([\d.]+)
 PRESENCE_RE = re.compile(r'^PRAESENZ (an|aus)\s+clients=(\d+)(?:\s+rssi=(-?\d+) dBm\s+(\S+))?')
 CLIENT_RE = re.compile(r'^CLIENT (join|leave) (\S+)')
 AP_RE = re.compile(r'^AP ssid=(\S+) ip=(\S+) kanal=(\d+)')
+CLAP2_RE = re.compile(r'^KLATSCH #(\d+)\s+(einzel|doppel)(?:\s+Abstand (\d+) ms)?\s+Konfidenz ([\d.]+)(?:\s+LED1 (an|aus))?')
+REJECT2_RE = re.compile(r'^VERWORFEN einzel\s+Grund: (.*?)\s*$')
 LIGHT_RE = re.compile(r'^LICHT (an|aus)\s+\((.*?)\)')
 MODEL_RE = re.compile(r'^MODELL\s+(.*?)\s*->\s*(\S+)\s+Inferenz ([\d.]+) ms')
 REJECT_RE = re.compile(r'^VERWORFEN\s+Dauer (\d+) ms\s+Peak (\d+)\s+x([\d.]+)\s+Grund: (.*?)(?:\s+ZCR (\d+))?(?:\s+Abkl\. (\d+) ms)?\s*$')
@@ -94,6 +98,19 @@ def handle_line(line, log):
             return
         push("level", [round(t, 3), rms, floor])
         if log: log.write(f"{t:.3f},L,{rms:.0f},{floor:.0f}\n")
+        return
+    m = CLAP2_RE.match(line)
+    if m:
+        ev = {"t": round(t, 3), "n": int(m.group(1)), "kind": m.group(2), "gap": int(m.group(3) or 0), "conf": float(m.group(4)), "led1": (m.group(5) == "an") if m.group(5) else None}
+        state["claps"] = ev["n"]
+        push("clap", ev); push("log", line)
+        if log: log.write(f"{t:.3f},K2,{ev['n']},{ev['kind']},{ev['gap']},{ev['conf']},{'' if ev['led1'] is None else int(ev['led1'])}\n")
+        return
+    m = REJECT2_RE.match(line)
+    if m:
+        ev = {"t": round(t, 3), "kind": "einzel", "why": m.group(1), "dur": 0, "peak": 0, "ratio": 0, "zcr": 0, "decay": 0}
+        push("reject", ev); push("log", line)
+        if log: log.write(f"{t:.3f},R2,{ev['why']}\n")
         return
     m = CLAP_RE.match(line)
     if m:
@@ -337,7 +354,7 @@ body:not([data-mode="presence"]):not([data-mode="house"]) .only-presence{display
   </section>
   <section class="card only-clap">
     <h2>Lautstärke, letzte 10 s (RMS, logarithmisch)</h2>
-    <div class="legend"><span><i class="line" style="background:var(--c1)"></i>Pegel</span><span><i class="line" style="background:var(--muted)"></i>Grundrauschen</span><span><i class="line" style="background:var(--c2);width:2px;height:12px"></i>Klatscher</span><span><i class="line" style="background:var(--axis);width:2px;height:12px"></i>verworfen</span></div>
+    <div class="legend"><span><i class="line" style="background:var(--c1)"></i>Pegel</span><span><i class="line" style="background:var(--muted)"></i>Grundrauschen</span><span><i class="line" style="background:var(--c2);width:2px;height:12px"></i>Klatscher (halb: erster von zwei)</span><span><i class="line" style="background:var(--axis);width:2px;height:12px"></i>verworfen</span></div>
     <canvas id="lvl" height="200"></canvas>
   </section>
   <section class="card only-presence">
@@ -364,7 +381,7 @@ body:not([data-mode="presence"]):not([data-mode="house"]) .only-presence{display
   <canvas id="tl" height="56"></canvas>
 </section>
 <section class="card only-clap" style="margin-top:16px">
-  <h2>Klatscher und LED1-Zustand, letzte 60 Sekunden</h2>
+  <h2>Klatscher und Schalterzustand (LED1), letzte 60 Sekunden</h2>
   <div class="legend"><span><i style="background:var(--c1);opacity:.35"></i>LED1 an</span><span><i class="line" style="background:var(--c2);width:2px;height:12px"></i>Klatscher</span><span><i class="line" style="background:var(--axis);width:2px;height:12px"></i>verworfen</span></div>
   <canvas id="ctl" height="56"></canvas>
 </section>
@@ -452,8 +469,7 @@ function renderHero(){
   } else if (mode === 'clap') {
     if (!lastClap) return waiting('warte auf den ersten Klatscher');
     const ev = lastClap; hv.textContent = ev.led1 ? 'an' : 'aus'; sw.style.background = ev.led1 ? css('--c1') : css('--muted');
-    hs.textContent = 'Klatscher #' + ev.n + '  ·  Dauer ' + ev.dur + ' ms  ·  Spitze ' + ev.peak.toLocaleString('de-DE') + ' (x' + String(ev.ratio).replace('.', ',') + ')';
-    setLed('led1', ev.led1, css('--c1'));
+    hs.textContent = clapText(ev); setLed('led1', ev.led1, css('--c1'));
   } else if (mode === 'presence') {
     if (!lastPres) return waiting('warte auf die erste Anwesenheitsmeldung');
     const ev = lastPres; hv.textContent = ev.on ? 'anwesend' : 'abwesend'; sw.style.background = ev.on ? css('--c1') : css('--muted');
@@ -463,7 +479,8 @@ function renderHero(){
   } else if (mode === 'house') {
     const on = lastHouse ? lastHouse.on : lastClap ? lastClap.led1 : false;
     hv.textContent = on ? 'Licht an' : 'Licht aus'; sw.style.background = on ? css('--c1') : css('--muted');
-    hs.textContent = (lastPres ? (lastPres.on ? 'Handy anwesend' : 'Handy abwesend') : 'Handy: noch keine Meldung') + (lastHouse ? '  ·  zuletzt: ' + lastHouse.why : '');
+    const waitingSecond = lastClap && lastClap.kind === 'einzel' && (!lastHouse || lastClap.t > lastHouse.t) && srvNow() - lastClap.t < 2;
+    hs.textContent = (lastPres ? (lastPres.on ? 'Handy anwesend' : 'Handy abwesend') : 'Handy: noch keine Meldung') + (lastHouse ? '  ·  zuletzt: ' + lastHouse.why : '') + (waitingSecond ? '  ·  1. Klatscher erkannt, warte auf den zweiten' : '');
     setLed('led1', on, css('--c1')); setLed('led2', lastPres && lastPres.on, css('--c3'));
   }
 }
@@ -479,6 +496,10 @@ function applyPresence(ev){
   if (ev.kind === 'presence') { lastPres = ev; renderHero(); }
 }
 function applyHouse(ev){ lastHouse = ev; renderHero(); }
+function clapText(ev){
+  if (ev.kind === 'einzel') return '1. Klatscher #' + ev.n + ' erkannt (Konfidenz ' + fmt(ev.conf) + ')  ·  warte auf den zweiten';
+  if (ev.kind === 'doppel') return 'Doppelklatscher #' + ev.n + '  ·  Abstand ' + ev.gap + ' ms  ·  Konfidenz ' + fmt(ev.conf);
+  return 'Klatscher #' + ev.n + '  ·  Dauer ' + ev.dur + ' ms  ·  Spitze ' + ev.peak.toLocaleString('de-DE') + ' (x' + String(ev.ratio).replace('.', ',') + ')'; }
 function drawPresence(now){
   const c = $('prs'); if (!c.offsetParent) return; const { ctx, w, h } = setupCanvas(c);
   const span = 600, padL = 44, padR = 16, padT = 8, padB = 22, pw = w - padL - padR, ph = h - padT - padB;
@@ -556,7 +577,10 @@ function applyModel(ev){
   $('mnote').textContent = 'Entscheidung: ' + ev.best + '  ·  Inferenz ' + String(ev.ms).replace('.', ',') + ' ms';
 }
 
-function applyClap(ev){ led1State = ev.led1; lastClap = ev; renderHero(); }
+function applyClap(ev){
+  if (ev.kind === 'einzel') { ev.led1 = led1State; }        /* erster Klatscher: Schalter unveraendert, Band laeuft weiter */
+  else led1State = ev.led1;
+  lastClap = ev; renderHero(); }
 
 function applyInference(inf){
   last = inf;
@@ -663,7 +687,7 @@ function drawLevel(now){
   ctx.strokeStyle = css('--axis'); ctx.lineWidth = 2;
   for (const ev of rejects) { const xx = x(ev.t); if (xx < padL) continue; ctx.beginPath(); ctx.moveTo(xx, padT); ctx.lineTo(xx, padT + ph); ctx.stroke(); }
   ctx.strokeStyle = css('--c2'); ctx.lineWidth = 2;
-  for (const ev of claps) { const xx = x(ev.t); if (xx < padL) continue; ctx.beginPath(); ctx.moveTo(xx, padT); ctx.lineTo(xx, padT + ph); ctx.stroke(); }
+  for (const ev of claps) { const xx = x(ev.t); if (xx < padL) continue; ctx.beginPath(); ctx.moveTo(xx, ev.kind === 'einzel' ? padT + ph / 2 : padT); ctx.lineTo(xx, padT + ph); ctx.stroke(); }
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   for (const [k, col] of [[2, css('--muted')], [1, css('--c1')]]) {
     ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); let st = false;
@@ -689,7 +713,7 @@ function drawClapStrip(now){
   ctx.strokeStyle = css('--axis'); ctx.lineWidth = 2;
   for (const ev of rejects) { const xx = x(ev.t); if (xx < 0) continue; ctx.beginPath(); ctx.moveTo(xx, top + barH / 2); ctx.lineTo(xx, top + barH); ctx.stroke(); }
   ctx.strokeStyle = css('--c2'); ctx.lineWidth = 2;
-  for (const ev of claps) { const xx = x(ev.t); if (xx < 0) continue; ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, top + barH); ctx.stroke(); }
+  for (const ev of claps) { const xx = x(ev.t); if (xx < 0) continue; ctx.beginPath(); ctx.moveTo(xx, ev.kind === 'einzel' ? top + barH / 2 : top); ctx.lineTo(xx, top + barH); ctx.stroke(); }
   ctx.strokeStyle = css('--axis'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, top + barH + 0.5); ctx.lineTo(w, top + barH + 0.5); ctx.stroke();
   ctx.fillStyle = css('--muted'); ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center';
   for (let s = 0; s <= span; s += 10) { const xx = w - s / span * w; ctx.fillText(s === 0 ? 'jetzt' : '-' + s + ' s', Math.min(w - 16, Math.max(16, xx)), axisY); }
