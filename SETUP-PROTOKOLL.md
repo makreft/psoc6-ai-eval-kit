@@ -1467,3 +1467,25 @@ Gebaut und geflasht. Schaltlogik für echtes Licht (Relais, Funksteckdose, Smart
 `app/clap_rules` kompiliert beim ersten Anlauf durch (Pins `P10_4`/`P10_5` und die HAL-Taktfunktionen sind über die vorhandenen Include-Pfade erreichbar). Nur der Linker meckerte: `cyhal_pdmpcm.c` referenziert sechs Funktionen des HAL-DMA-Treibers (`cyhal_dma_free`, `is_busy`, `enable_event`, `configure`, `enable`, `start_transfer`), den Zephyr für CAT1A nicht mitbaut. Die Aufrufe liegen nur im asynchronen Lesepfad, den die Anwendung nicht nutzt. Lösung: `src/cyhal_dma_stub.c` mit leeren Implementierungen, die Fehler zurückgeben. Ergebnis: 64.344 Bytes Flash, 33.496 Bytes RAM.
 
 Noch nicht geflasht, weil Marco gerade die Bluetooth-Anwendung auf dem Board testet; das Board kann nur eine Firmware tragen. Offen bleibt damit die Praxisfrage, ob die HAL-Taktreservierung (PLL0, HF1) neben Zephyrs Clock-Control funktioniert und ob das FIFO-Polling alle 2 ms ohne Verluste durchkommt.
+
+## 65. Richtungswechsel: Anwesenheit per klassischem Bluetooth-Paging, ohne App
+
+Marco: "Ich will nicht permanent einen Beacon senden, sondern das Board soll die Liste aller verfügbaren BT-Geräte scannen; solange mein BT-Gerät in der Nähe ist LED an, ist mein BT aus oder nicht in der Nähe, soll die LED ausgehen."
+
+**Warum nicht BLE-Scan:** Ohne eigene App sendet das Handy nur Pakete mit rotierenden Zufallsadressen und rotierenden Kennungen (Google Find My Device, Abschnitt 61), bewusst nicht zuordenbar. Ein klassischer Inquiry-Scan findet Handys nur, solange sie sichtbar geschaltet sind (Android: nur bei geöffneter Bluetooth-Einstellungsseite).
+
+**Lösung: Paging auf die feste klassische Adresse.** Jedes Handy hat eine feste BR/EDR-Adresse (Android: Einstellungen > Über das Telefon > Status > Bluetooth-Adresse). Das Board versucht alle 15 s eine ACL-Verbindung zu dieser Adresse. Erfolg heißt: Handy in Reichweite und Bluetooth an; die Verbindung wird sofort getrennt. Keine Kopplung, kein Dialog, auf dem Handy nichts zu tun. Zwei Fehlversuche in Folge (je 5 s Page-Timeout) gelten als abwesend. Das ist der Mechanismus, den Heimautomationen mit `l2ping` seit Jahren nutzen.
+
+**Zephyr:** Der klassische Stack (`CONFIG_BT_CLASSIC`, experimentell) ist in 4.4.2 vollständig vorhanden (`subsys/bluetooth/host/classic/`), API `bt_conn_create_br(adresse, BT_BR_CONN_PARAM_DEFAULT)` mit `connected`-Callback (err 0 = erreichbar, 0x04 = Page Timeout). Neue Anwendung `zephyr/app/bt_page_presence/` (gleiches Overlay wie `ble_presence`), 171 KB Flash, 66 KB RAM.
+
+**Test mit Platzhalter-Adresse 11:22:33:44:55:66:**
+```
+bt_hci_core: HCI: version 5.2 (0x0b) revision 0x0000, manufacturer 0x0131
+bt_hci_core: LMP: version 5.2 (0x0b) subver 0x2310
+Bluetooth bereit (BR/EDR + LE)
+PAGE fail 0x04
+PAGE fail 0x04
+```
+Controller (Cypress, Hersteller-ID 0x0131) meldet sich mit BR/EDR 5.2, eigene Adresse 10:32:2C:65:BB:95. Paging an eine nicht existierende Adresse endet nach 5 s mit Page Timeout, "abwesend" bleibt. Eine Warnung des Hosts (ACL-Puffer 8 != 3) ist harmlos.
+
+Nächster Schritt: Marcos Bluetooth-Adresse eintragen und testen (Handy da, Handy weg, Bluetooth aus).

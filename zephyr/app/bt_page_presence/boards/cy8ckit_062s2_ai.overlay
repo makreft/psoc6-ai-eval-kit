@@ -1,0 +1,43 @@
+/*
+ * Bluetooth-HCI-UART fuer das CY8CKIT-062S2-AI (Murata 1YN mit CYW43439).
+ * Das Board-DTS von Zephyr definiert keinen Bluetooth-Knoten; dieses Overlay ergaenzt ihn nach
+ * dem Vorbild von cy8cproto_062_4343w. Pins laut Infineon-BSP (cycfg_pins.h):
+ *   BT_UART_RX P3.0, BT_UART_TX P3.1, BT_UART_RTS P3.2, BT_UART_CTS P3.3 (SCB2),
+ *   BT_POWER (REG_ON) P3.4, BT_DEVICE_WAKE P3.5, BT_HOST_WAKE P4.0
+ */
+/ {
+	chosen {
+		zephyr,bt-hci = &bt_hci_uart;
+	};
+};
+
+/* GPIO-Port 3 (REG_ON) und 4 (HOST_WAKE) sind im Board-DTS nicht aktiviert */
+&gpio_prt3 { status = "okay"; };
+&gpio_prt4 { status = "okay"; };
+
+&p3_1_scb2_uart_tx { drive-push-pull; };
+&p3_0_scb2_uart_rx { input-enable; };
+&p3_2_scb2_uart_rts { drive-push-pull; };
+&p3_3_scb2_uart_cts { input-enable; };
+
+/* Im cat1a-Devicetree sind die SCBs generisch; das Board weist sie als UART zu (wie uart5: &scb5 im Board-DTS) */
+uart2: &scb2 {
+	compatible = "infineon,uart";
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&p3_1_scb2_uart_tx &p3_0_scb2_uart_rx &p3_2_scb2_uart_rts &p3_3_scb2_uart_cts>;
+	pinctrl-names = "default";
+	hw-flow-control;
+
+	bt_hci_uart: bt_hci_uart {
+		compatible = "zephyr,bt-hci-uart";
+		status = "okay";
+
+		murata-1yn {
+			status = "okay";
+			compatible = "infineon,bt-hci-uart";
+			bt-reg-on-gpios = <&gpio_prt3 4 GPIO_ACTIVE_HIGH>;
+			fw-download-speed = <3000000>;
+		};
+	};
+};
