@@ -23,9 +23,11 @@
 /* ---- Einstellungen ---- */
 static const uint8_t TARGET_UUID[16] = { 0xA1, 0xE7, 0xA1, 0x4B, 0x17, 0x00, 0x4A, 0x1C, 0x9E, 0x5A, 0x0C, 0x62, 0x00, 0x00, 0xC1, 0x47 };
 static const char *TARGET_NAME = "AI-Eval-Kit-Handy";     /* optional: Geraetename im Advertisement */
-#define RSSI_ON_DBM      (-85)      /* ab hier gilt "in der Naehe" (Einschalten) */
-#define RSSI_OFF_DBM     (-92)      /* darunter gilt "weg" (Ausschalten), Hysterese */
-#define LOST_TIMEOUT_MS  8000       /* ohne Advertisement so lange: weg */
+/* Messung 2026-10-09 (Tx-Power 1 dBm, Intervall 250 ms): neben dem Board -50 dBm, im Raum -55 bis -70,
+ * an der Reichweitengrenze (Nachbarraum) -75 bis -84, danach keine Pakete mehr. */
+#define RSSI_ON_DBM      (-72)      /* ab hier gilt "in der Naehe" (Einschalten) */
+#define RSSI_OFF_DBM     (-80)      /* darunter gilt "weg" (Ausschalten), Hysterese */
+#define LOST_TIMEOUT_MS  5000       /* ohne Advertisement so lange: weg (20 Sendeintervalle) */
 #define EMA_ALPHA        0.3f       /* Glaettung der Signalstaerke */
 
 static const struct gpio_dt_spec led1 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);   /* LED1 = P5.3 */

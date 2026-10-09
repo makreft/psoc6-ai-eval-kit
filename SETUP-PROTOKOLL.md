@@ -1429,3 +1429,22 @@ Das Board erkennt das Handy innerhalb einer Sekunde, Signalstärke neben dem Boa
 - Zur Diagnose loggt der Scanner für Sender über -60 dBm die rohen Advertising-Bytes (vor dem Parsen gesichert, weil `bt_data_parse` den Puffer verbraucht). Dabei fiel auf, dass Marcos Handy von sich aus "Find My Device"-Pakete von Google sendet (Service-UUID FCF1), mit wechselnden Zufallsadressen; ein Beleg dafür, warum Erkennung ohne eigenes Kennzeichen nicht geht.
 
 Entfernungstest (Weggehen, Zurückkommen, Zeit bis "aus"/"an") folgt in Abschnitt 62.
+
+## 62. Entfernungstest
+
+Mitschnitt 132 s (08:40 bis 08:43), Marco geht mit dem Handy in einen anderen Raum und kommt zurück. Signalstärke je Sekunde (geglättet, `.` = kein Paket seit mehr als 8 s):
+```
+   0s  -50 -49 -48 -49 -49 -49 -48 -49 -49 -50 -51 -51 -50 -53 -49 -51 -52 -51 -51 -55
+  20s  -55 -57 -57 -68 -68 -60 -64 -68 -70 -64 -64 -60 -62 -61 -70 -74 -79 -76 -82  .
+  40s   .   .   .   .   .   .  -84 -83 -76 -71 -64 -58 -41 -38 -36 -37 -38 -39 -46 -51
+  60s  -55 -57 -55 -57 -60 -56 -55 -54 -53 -53 -52 -52 -53 -54 -53 -53 -53 -53 -54 -53
+```
+- Neben dem Board: -50 dBm. Beim Weggehen fällt das Signal über -60 bis -70 (im Raum) auf -82 (Nachbarraum). Der Punkt `.` zeigt "abwesend" (zweiter Wert der P-Zeile), nicht Funkabriss.
+- "abwesend" bei Sekunde 39 (`PRAESENZ aus clients=1`): Die geglättete Signalstärke fiel unter die Ausschaltschwelle -92 dBm, während noch Pakete ankamen. Die Glättung (Faktor 0,3) verzögert das um einige Sekunden. LED1 aus.
+- Zurückkommen: bei Sekunde 46 wieder über -85 dBm (-84), "anwesend" sofort, LED1 an. Nah am Board bis -36 dBm.
+- `CLIENT leave`/`join` erschienen nicht, weil diese Zeilen nur bei Verlust-Timeout bzw. Erstkontakt ausgegeben werden; hier schaltete die Hysterese. Kein Fehler.
+
+**Bewertung:** Erkennung funktioniert in beide Richtungen, auch die Hysterese. Aber -92 dBm liegt fast an der Reichweitengrenze: Marco war schon im Nachbarraum (-75 bis -84), bevor das Board abschaltete. Für "Nachbarraum = weg" sind die Schwellen zu locker.
+
+**Angepasst (gebaut und geflasht):** Einschalten ab -72 dBm, Ausschalten unter -80 dBm, Timeout 5 s (20 Sendeintervalle). Damit zählt der eigene Raum als anwesend, der Nachbarraum nicht mehr, und ein Funkabriss wird nach 5 s erkannt. Zweiter Entfernungstest steht aus.
+
