@@ -1579,3 +1579,37 @@ mic: PLL0 24571429 Hz, HF1 24571429 Hz
 Mikrofon laeuft: 16 kHz mono, 16-ms-Rahmen, 32 Baender
 ```
 Dieselbe Arena-Größe wie unter Arduino (12.484) bestätigt, dass dasselbe Modell mit denselben Kerneln läuft. Klatschtest steht aus (Marco im Zug, Grundrauschen um 950; der Auslöser verlangt das Sechsfache, in 30 s keine Inferenz).
+
+## 71. Gemeinsame Firmware "house": Klatschen und Bluetooth parallel
+
+`zephyr/app/house` vereint `bt_page_presence` und `clap_model` in einer Anwendung mit zwei Threads:
+
+| Thread | Prioritaet | Aufgabe |
+|---|---|---|
+| main (Zephyr-Hauptthread) | 7 (`CONFIG_MAIN_THREAD_PRIORITY`) | Bluetooth: Firmware-Download, HCI Reset, alle 15 s ein Remote Name Request an das Handy, Ausgabe `P,`/`PAGE`/`PRAESENZ`/`CLIENT` |
+| audio (eigener Stack 16 KB) | 5 (hoeher) | Mikrofon alle 2 ms lesen, Merkmale, bei Einsatz das Modell, Ausgabe `L,`/`MODELL`/`KLATSCH` |
+
+Der Audio-Thread liegt ueber dem Bluetooth-Thread, weil das Mikrofon-FIFO nur 256 Woerter (16 ms) fasst; waehrend des 20-sekuendigen Firmware-Downloads und der Paging-Wartezeiten darf es nicht ueberlaufen. Die Hauslogik (`main.c`) ist der einzige Ort, der die LEDs anfasst, geschuetzt durch einen Mutex:
+
+- Klatschen schaltet das Licht (LED1) um, Zeile `LICHT an|aus  (Klatschen)`.
+- Wird das Handy unerreichbar und das Licht ist an, geht es aus: `LICHT aus  (Handy weg)`. Kommt das Handy zurueck, bleibt das Licht aus, bis wieder geklatscht wird (kein automatisches Einschalten, das waere beim Heimkommen am Tag laestig).
+- LED2 zeigt die Anwesenheit.
+
+Die Quellen sind unveraendert aus den beiden Einzelanwendungen uebernommen; aus `main()` wurde jeweils `bt_presence_thread()` bzw. `clap_thread()`, die LED-Aufrufe wurden durch `house_set_presence()` und `house_toggle_light()` ersetzt. Zwei Stolperer beim Zusammenfuehren: die Skript-Ersetzung von `return 0;` traf auch das Ende des Adress-Parsers (Folge: "Adresse ungueltig"), und `#include "house.h"` landete unter der ersten Verwendung. Beides in wenigen Minuten behoben.
+
+**Ergebnis** (Build 148.200 Bytes Flash, 118.364 Bytes RAM): in einem 90-s-Mitschnitt 821 `L,`-Zeilen (nominal 10 pro Sekunde, kein Aussetzer waehrend des Firmware-Downloads), 6 erfolgreiche `PAGE ok ... Name: Marcos-Handy` und durchgehend `P,-50,1`. Beide Funktionen laufen also gleichzeitig, ohne dass eine die andere stoert. Zusaetzlich wiederholt die Firmware die Zeile `AP ssid=BT-Paging ...` jede Minute (auch in `bt_page_presence`), damit ein spaeter gestarteter Viewer den Modus erkennt.
+
+Offen: Klatschtest mit dem Modell unter Zephyr (ruhige Umgebung), Test Bluetooth aus/an mit der gemeinsamen Firmware.
+
+## 72. Viewer: Funktionsmenue und Haus-Ansicht
+
+`tools/live_viewer.py` bekam links oben ein Burger-Menue (☰):
+
+- **Automatisch** (Standard): Die Ansicht folgt den Daten. Kommen innerhalb von 30 s sowohl Mikrofon- (`L,`) als auch Bluetooth-Zeilen (`P,`), ist es die gemeinsame Firmware, Ansicht "Haus"; sonst gilt die Funktion, von der zuletzt Daten kamen.
+- **Gesten**, **Klatschen / Schnipsen**, **Anwesenheit per Bluetooth**, **Haus**: Ansicht fest einstellen, unabhaengig davon, was gerade ankommt. Die Wahl bleibt im Browser gespeichert (localStorage), `?mode=gesture|clap|presence|house|auto` in der URL setzt sie vorab.
+- Gruener Punkt je Eintrag: von dieser Funktion kamen in den letzten 5 s Daten.
+- Ausgegraut, "noch ohne Firmware": Radar (BGT60TR13C), Luftdruck/Hoehe (DPS368), Magnetfeld (BMM350). Das beantwortet die Frage "was gibt es noch": die drei Sensoren sind auf dem Board, haben aber noch keine Anwendung.
+
+Ansicht "Haus": Kachel "Licht im Haus" mit Lichtzustand (aus `LICHT`-Zeilen), Handy anwesend/abwesend (LED2), dazu die Pegelkurve, die Erreichbarkeitsleiste und der Klatsch-Streifen. Fuer die Paging-Variante zeigt die Bluetooth-Kachel kein dBm mehr (die Firmware liefert keinen echten RSSI, nur erreichbar/nicht erreichbar), sondern nur das blaue Band und die Wechsel. Der Anwesenheitszustand wird auch aus den `P,`-Zeilen abgeleitet, damit ein Viewer, der nach dem Board gestartet wurde, nicht auf die naechste `PRAESENZ`-Meldung warten muss.
+
+Getestet mit Playwright gegen das laufende Board: Automatik springt nach etwa 15 s auf "Haus", Handy anwesend, LED2 an; Menue oeffnen, "Klatschen" waehlen, Ansicht wechselt und bleibt; "Automatisch" stellt zurueck. Keine Fehler in der Browser-Konsole.

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Live-Viewer fuer den Gesten-Sketch (arduino/sketchbook/02-imu-gesture).
+"""Live-Viewer fuer alle Funktionen des Boards (Gesten, Klatschen, Anwesenheit, Haus).
 
-Liest die KitProg3-Konsole (J1, 115200 Baud), parst Inferenzzeilen
-  "#12 none=0.01 circle=0.02 shaking=0.97 -> shaking"
-und Rohdatenzeilen
-  "D,ax,ay,az,gx,gy,gz"
-und zeigt beides live im Browser: erkannte Geste, Scores, Zeitstreifen der letzten 60 s,
-Beschleunigung und Drehrate der letzten 10 s. Nur Python-Standardbibliothek plus pyserial.
+Liest die KitProg3-Konsole (J1, 115200 Baud) und zeigt die Zeilen der Firmware live im Browser:
+  Gesten      "#12 none=0.01 circle=0.02 shaking=0.97 -> shaking", Rohdaten "D,ax,ay,az,gx,gy,gz"
+  Klatschen   "L,rms,floor", "KLATSCH #n ...", "VERWORFEN ...", "MODELL clap=0.9 ... -> clap Inferenz 53 ms"
+  Anwesenheit "P,rssi,n", "PRAESENZ an|aus ...", "CLIENT join|leave mac", "AP ssid=... ip=... kanal=..."
+  Haus        "LICHT an|aus  (Grund)"  (Zephyr-Firmware house: Klatschen + Bluetooth zusammen)
+Die Ansicht folgt automatisch den Daten; ueber das Menue (Burger-Symbol links oben) laesst sie sich
+fest auf eine Funktion stellen. Nur Python-Standardbibliothek plus pyserial.
 
 Aufruf:  tools/live_viewer.py [--port /dev/ttyACM0] [--http 8765] [--log datei.csv]
 Dann im Browser: http://localhost:8765
@@ -21,6 +22,7 @@ CLAP_RE = re.compile(r'^KLATSCH #(\d+)\s+Dauer (\d+) ms\s+Peak (\d+)\s+x([\d.]+)
 PRESENCE_RE = re.compile(r'^PRAESENZ (an|aus)\s+clients=(\d+)(?:\s+rssi=(-?\d+) dBm\s+(\S+))?')
 CLIENT_RE = re.compile(r'^CLIENT (join|leave) (\S+)')
 AP_RE = re.compile(r'^AP ssid=(\S+) ip=(\S+) kanal=(\d+)')
+LIGHT_RE = re.compile(r'^LICHT (an|aus)\s+\((.*?)\)')
 MODEL_RE = re.compile(r'^MODELL\s+(.*?)\s*->\s*(\S+)\s+Inferenz ([\d.]+) ms')
 REJECT_RE = re.compile(r'^VERWORFEN\s+Dauer (\d+) ms\s+Peak (\d+)\s+x([\d.]+)\s+Grund: (.*?)(?:\s+ZCR (\d+))?(?:\s+Abkl\. (\d+) ms)?\s*$')
 PAIR_RE = re.compile(r'(\S+?)=([-\d.]+)')
@@ -28,7 +30,7 @@ PAIR_RE = re.compile(r'(\S+?)=([-\d.]+)')
 clients_lock = threading.Lock()
 clients = []            # eine Queue pro SSE-Client
 state = {"port": None, "connected": False, "frames": 0, "inferences": 0, "labels": [], "started": time.time()}
-pending = {"frames": [], "inf": [], "log": [], "level": [], "clap": [], "reject": [], "model": [], "pres": [], "presev": []}
+pending = {"frames": [], "inf": [], "log": [], "level": [], "clap": [], "reject": [], "model": [], "pres": [], "presev": [], "house": []}
 pending_lock = threading.Lock()
 
 
@@ -116,6 +118,12 @@ def handle_line(line, log):
         else: ev = {"t": round(t, 3), "kind": "ap", "ssid": m.group(1), "ip": m.group(2), "channel": int(m.group(3))}
         push("presev", ev); push("log", line)
         if log: log.write(f"{t:.3f},E,{ev['kind']},{ev.get('mac', ev.get('ssid', ''))}\n")
+        return
+    m = LIGHT_RE.match(line)
+    if m:
+        ev = {"t": round(t, 3), "on": m.group(1) == "an", "why": m.group(2)}
+        push("house", ev); push("log", line)
+        if log: log.write(f"{t:.3f},H,{int(ev['on'])},{ev['why']}\n")
         return
     m = MODEL_RE.match(line)
     if m:
@@ -269,14 +277,45 @@ th{color:var(--ink2);font-weight:600}
 .log{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink2);white-space:pre-wrap;max-height:120px;overflow:auto;margin:0}
 .hidden{display:none}
 .note{color:var(--muted);font-size:13px}
-body[data-mode="clap"] .only-gesture, body[data-mode="presence"] .only-gesture{display:none}
-body:not([data-mode="clap"]) .only-clap{display:none}
-body:not([data-mode="presence"]) .only-presence{display:none}
+body[data-mode="clap"] .only-gesture, body[data-mode="presence"] .only-gesture, body[data-mode="house"] .only-gesture{display:none}
+body:not([data-mode="clap"]):not([data-mode="house"]) .only-clap{display:none}
+body:not([data-mode="presence"]):not([data-mode="house"]) .only-presence{display:none}
+/* Funktionsmenue (Burger) */
+.menuwrap{position:relative;align-self:center}
+.burger{font-size:18px;line-height:1;padding:3px 9px}
+.menu{position:absolute;left:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:6px;min-width:300px;max-width:min(92vw,420px);z-index:20}
+.menu button{display:flex;width:100%;text-align:left;border:0;background:transparent;border-radius:6px;padding:7px 10px;gap:10px;align-items:flex-start}
+.menu button:hover:not(:disabled){background:var(--grid)}
+.menu button:disabled{cursor:default}
+.menu button:disabled .t,.menu button:disabled .d{color:var(--muted)}
+.menu .live{width:8px;height:8px;border-radius:50%;background:var(--axis);margin-top:6px;flex:none}
+.menu .live.on{background:var(--good)}
+.menu button[data-m="auto"] .live{visibility:hidden}
+.menu .t{display:block;font-weight:600;color:var(--ink)}
+.menu .t::before{content:"";display:inline-block;width:1.2em}
+.menu button[aria-checked="true"] .t::before{content:"\2713"}
+.menu .d{display:block;color:var(--ink2);font-size:12px;padding-left:1.2em}
+.menu hr{border:0;border-top:1px solid var(--grid);margin:6px 0}
 </style>
 </head>
 <body>
 <header>
-  <h1>Gestenerkennung live</h1>
+  <span class="menuwrap">
+    <button class="burger" id="burger" aria-label="Funktion wählen" aria-haspopup="menu" aria-expanded="false">&#9776;</button>
+    <div class="menu hidden" id="menu" role="menu">
+      <button data-m="auto" role="menuitemradio"><i class="live"></i><span><span class="t">Automatisch</span><span class="d">Ansicht folgt den Daten, die das Board gerade sendet</span></span></button>
+      <hr>
+      <button data-m="gesture" role="menuitemradio"><i class="live"></i><span><span class="t">Gesten: Kreisen / Schütteln</span><span class="d">IMU BMI270, Sketch 02-imu-gesture</span></span></button>
+      <button data-m="clap" role="menuitemradio"><i class="live"></i><span><span class="t">Klatschen / Schnipsen</span><span class="d">Mikrofon, Sketch 03-clap-led oder 05-clap-model, Zephyr clap_model</span></span></button>
+      <button data-m="presence" role="menuitemradio"><i class="live"></i><span><span class="t">Anwesenheit per Bluetooth</span><span class="d">Handy erreichbar? Zephyr bt_page_presence (WLAN-Variante: Sketch 06-presence-ap)</span></span></button>
+      <button data-m="house" role="menuitemradio"><i class="live"></i><span><span class="t">Haus: Klatschen + Bluetooth</span><span class="d">Licht per Klatschen, aus beim Verlassen des Hauses. Zephyr house</span></span></button>
+      <hr>
+      <button disabled><i class="live"></i><span><span class="t">Radar-Anwesenheit (BGT60TR13C)</span><span class="d">noch ohne Firmware</span></span></button>
+      <button disabled><i class="live"></i><span><span class="t">Luftdruck / Höhe (DPS368)</span><span class="d">noch ohne Firmware</span></span></button>
+      <button disabled><i class="live"></i><span><span class="t">Magnetfeld (BMM350)</span><span class="d">noch ohne Firmware</span></span></button>
+    </div>
+  </span>
+  <h1 id="h1">Gesten live</h1>
   <div class="status">
     <span><i class="dot" id="dot"></i><span id="conn">verbinde ...</span></span>
     <span>Frames/s <b id="fps">0</b></span>
@@ -284,7 +323,7 @@ body:not([data-mode="presence"]) .only-presence{display:none}
     <span>gesamt <b id="tot">0</b></span>
   </div>
   <span style="flex:1"></span>
-  <span style="display:flex;gap:8px"><button id="tbl">Tabelle</button><button id="theme">Dunkel/Hell</button></span>
+  <span style="display:flex;gap:8px"><button id="tbl" class="only-gesture">Tabelle</button><button id="theme">Dunkel/Hell</button></span>
 </header>
 
 <div class="grid two">
@@ -293,7 +332,7 @@ body:not([data-mode="presence"]) .only-presence{display:none}
     <div class="hero"><div class="sw" id="hsw"></div><div><div class="val" id="hval">...</div><div class="sub" id="hsub">warte auf Daten vom Board</div></div></div>
     <div class="leds">
       <span class="led" id="led1"><i class="bulb"></i><span id="led1t">LED1</span></span>
-      <span class="led only-gesture" id="led2"><i class="bulb"></i>LED2: circle</span>
+      <span class="led" id="led2"><i class="bulb"></i><span id="led2t">LED2: circle</span></span>
     </div>
   </section>
   <section class="card only-clap">
@@ -302,8 +341,8 @@ body:not([data-mode="presence"]) .only-presence{display:none}
     <canvas id="lvl" height="200"></canvas>
   </section>
   <section class="card only-presence">
-    <h2>Signalstärke des Handys, letzte 10 Minuten (dBm)</h2>
-    <div class="legend"><span><i class="line" style="background:var(--c1)"></i>RSSI stärkster Client</span><span><i style="background:var(--c1);opacity:.35"></i>anwesend</span><span><i class="line" style="background:var(--c2);width:2px;height:12px"></i>An-/Abmeldung</span></div>
+    <h2 id="prstitle">Signalstärke des Handys, letzte 10 Minuten (dBm)</h2>
+    <div class="legend"><span id="prsrssi"><i class="line" style="background:var(--c1)"></i>RSSI stärkster Client</span><span><i style="background:var(--c1);opacity:.35"></i>anwesend</span><span><i class="line" style="background:var(--c2);width:2px;height:12px"></i>An-/Abmeldung</span></div>
     <canvas id="prs" height="200"></canvas>
     <p class="note" id="apnote"></p>
   </section>
@@ -367,26 +406,79 @@ let frames = [];                 // [t, ax, ay, az, gx, gy, gz], letzte 10 s
 let infs = [];                   // {t, n, scores, best}, letzte 60 s
 let last = null;
 let fpsCount = 0, ipsCount = 0;
-let mode = null;                 // 'gesture' oder 'clap', je nachdem, welcher Sketch sendet
+let mode = null;                 // wirksame Ansicht: 'gesture', 'clap', 'presence', 'house' (null: noch keine Daten)
+let pinned = null;               // im Menue gewaehlt; null = automatisch nach den Daten des Boards
+const seen = { gesture: 0, clap: 0, presence: 0, house: 0 };   // Server-Zeit der letzten Daten je Funktion
 let levels = [];                 // [t, rms, floor], letzte 10 s
 let claps = [];                  // {t, n, dur, peak, ratio, led1}, letzte 60 s
 let rejects = [];                // {t, dur, peak, ratio, why}, letzte 60 s
 let led1State = null;
 let pres = [];                   // [t, rssi, n], letzte 10 min
 let presEv = [];                 // {t, kind, ...}
-let apInfo = null;
-function setMode(m){ if (mode === m) return; mode = m; document.body.dataset.mode = m;
-  $('herotitle').textContent = m === 'clap' ? 'Klatsch-Schalter' : m === 'presence' ? 'Anwesenheit per Access Point' : 'Erkannte Geste';
-  $('led1t').textContent = m === 'clap' ? 'LED1: Schalter' : m === 'presence' ? 'LED1: anwesend' : 'LED1: shaking'; }
-function applyPresence(ev){
-  if (ev.kind === 'ap') { apInfo = ev; $('apnote').textContent = 'WLAN "' + ev.ssid + '", IP ' + ev.ip + ', Kanal ' + ev.channel; return; }
-  if (ev.kind === 'presence') {
-    $('hval').textContent = ev.on ? 'anwesend' : 'abwesend';
-    $('hsw').style.background = ev.on ? css('--c1') : css('--muted');
-    $('hsub').textContent = ev.n + (ev.n === 1 ? ' Gerät' : ' Geräte') + (ev.rssi != null ? '  ·  ' + ev.rssi + ' dBm  ·  ' + ev.mac : '');
-    const el = $('led1'); el.classList.toggle('on', ev.on); el.querySelector('.bulb').style.background = ev.on ? css('--c1') : 'transparent';
+let apInfo = null, paging = false;   // paging: Bluetooth-Paging statt WLAN-Access-Point (AP-Zeile mit ssid BT-...)
+let lastClap = null, lastPres = null, lastHouse = null;
+const MODES = {
+  gesture:  { title: 'Gesten', hero: 'Erkannte Geste', led1: 'LED1: shaking', led2: 'LED2: circle' },
+  clap:     { title: 'Klatsch-Schalter', hero: 'Klatsch-Schalter', led1: 'LED1: Schalter', led2: null },
+  presence: { title: 'Anwesenheit', hero: 'Anwesenheit per Access Point', led1: 'LED1: anwesend', led2: null },
+  house:    { title: 'Haus', hero: 'Licht im Haus', led1: 'LED1: Licht', led2: 'LED2: Handy anwesend' } };
+const srvNow = () => clockOffset ? Date.now() / 1000 - clockOffset : Math.max(...Object.values(seen));
+function applyMode(m){
+  if (mode === m) return; mode = m; document.body.dataset.mode = m || '';
+  const d = MODES[m] || MODES.gesture;
+  $('h1').textContent = d.title + ' live'; document.title = d.title + ' live';
+  $('herotitle').textContent = m === 'presence' && paging ? 'Anwesenheit per Bluetooth' : d.hero;
+  $('led1t').textContent = d.led1; $('led2').classList.toggle('hidden', !d.led2); if (d.led2) $('led2t').textContent = d.led2;
+  renderHero(); refreshMenu();
+}
+/* Automatik: beide Datenarten (Mikrofon und Bluetooth) innerhalb von 30 s = gemeinsame Firmware "house",
+ * sonst die Funktion, von der zuletzt Daten kamen. */
+function detect(){
+  if (pinned) { applyMode(pinned); return; }
+  const now = srvNow(), recent = k => seen[k] > 0 && now - seen[k] < 30;
+  let m = null;
+  if (recent('house') || (recent('clap') && recent('presence'))) m = 'house';
+  else { let best = 0; for (const k of ['gesture', 'clap', 'presence']) if (seen[k] > best) { best = seen[k]; m = k; } }
+  if (m) applyMode(m);
+}
+function setLed(id, on, col){ const el = $(id); el.classList.toggle('on', !!on); el.querySelector('.bulb').style.background = on ? col : 'transparent'; }
+function renderHero(){
+  const sw = $('hsw'), hv = $('hval'), hs = $('hsub');
+  const waiting = txt => { hv.textContent = '...'; hs.textContent = txt; sw.style.background = css('--muted'); setLed('led1', false); };
+  if (mode === 'gesture' || mode == null) {
+    if (!last) return; const bi = labels.indexOf(last.best);
+    hv.textContent = last.best; sw.style.background = colorOf(bi); hs.textContent = 'Konfidenz ' + fmt(last.scores[bi] ?? 0) + '  ·  Inferenz #' + last.n;
+    setLed('led1', last.best === 'shaking', colorOf(labels.indexOf('shaking'))); setLed('led2', last.best === 'circle', colorOf(labels.indexOf('circle')));
+  } else if (mode === 'clap') {
+    if (!lastClap) return waiting('warte auf den ersten Klatscher');
+    const ev = lastClap; hv.textContent = ev.led1 ? 'an' : 'aus'; sw.style.background = ev.led1 ? css('--c1') : css('--muted');
+    hs.textContent = 'Klatscher #' + ev.n + '  ·  Dauer ' + ev.dur + ' ms  ·  Spitze ' + ev.peak.toLocaleString('de-DE') + ' (x' + String(ev.ratio).replace('.', ',') + ')';
+    setLed('led1', ev.led1, css('--c1'));
+  } else if (mode === 'presence') {
+    if (!lastPres) return waiting('warte auf die erste Anwesenheitsmeldung');
+    const ev = lastPres; hv.textContent = ev.on ? 'anwesend' : 'abwesend'; sw.style.background = ev.on ? css('--c1') : css('--muted');
+    hs.textContent = paging ? (ev.on ? 'Handy antwortet auf Paging  ·  ' + ev.mac : 'Handy antwortet nicht (aus oder außer Reichweite)')
+                            : ev.n + (ev.n === 1 ? ' Gerät' : ' Geräte') + (ev.rssi != null ? '  ·  ' + ev.rssi + ' dBm  ·  ' + ev.mac : '');
+    setLed('led1', ev.on, css('--c1'));
+  } else if (mode === 'house') {
+    const on = lastHouse ? lastHouse.on : lastClap ? lastClap.led1 : false;
+    hv.textContent = on ? 'Licht an' : 'Licht aus'; sw.style.background = on ? css('--c1') : css('--muted');
+    hs.textContent = (lastPres ? (lastPres.on ? 'Handy anwesend' : 'Handy abwesend') : 'Handy: noch keine Meldung') + (lastHouse ? '  ·  zuletzt: ' + lastHouse.why : '');
+    setLed('led1', on, css('--c1')); setLed('led2', lastPres && lastPres.on, css('--c3'));
   }
 }
+function applyPresence(ev){
+  if (ev.kind === 'ap') {
+    apInfo = ev; paging = /^BT-/.test(ev.ssid);
+    $('apnote').textContent = paging ? 'Bluetooth-Paging (Remote Name Request alle 15 s), kein WLAN' : 'WLAN "' + ev.ssid + '", IP ' + ev.ip + ', Kanal ' + ev.channel;
+    $('prstitle').textContent = paging ? 'Handy per Bluetooth erreichbar, letzte 10 Minuten' : 'Signalstärke des Handys, letzte 10 Minuten (dBm)';
+    $('prsrssi').classList.toggle('hidden', paging);
+    if (mode === 'presence') $('herotitle').textContent = paging ? 'Anwesenheit per Bluetooth' : MODES.presence.hero;
+    return;
+  }
+  if (ev.kind === 'presence') { lastPres = ev; renderHero(); }
+}
+function applyHouse(ev){ lastHouse = ev; renderHero(); }
 function drawPresence(now){
   const c = $('prs'); if (!c.offsetParent) return; const { ctx, w, h } = setupCanvas(c);
   const span = 600, padL = 44, padR = 16, padT = 8, padB = 22, pw = w - padL - padR, ph = h - padT - padB;
@@ -401,10 +493,12 @@ function drawPresence(now){
     if (!on && runStart != null) { const x0 = Math.max(padL, x(runStart)), x1 = Math.min(padL + pw, x(i < pres.length ? pres[i][0] : now)); if (x1 > x0) ctx.fillRect(x0, padT, x1 - x0, ph); runStart = null; } }
   ctx.globalAlpha = 1;
   ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1; ctx.fillStyle = css('--muted'); ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'right';
-  for (const v of [-100, -80, -60, -40]) { const yy = Math.round(y(v)) + 0.5; ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + pw, yy); ctx.stroke(); ctx.fillText(String(v), padL - 6, yy + 4); }
+  if (!paging) for (const v of [-100, -80, -60, -40]) { const yy = Math.round(y(v)) + 0.5; ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + pw, yy); ctx.stroke(); ctx.fillText(String(v), padL - 6, yy + 4); }
+  ctx.strokeStyle = css('--axis'); ctx.beginPath(); ctx.moveTo(padL, padT + ph + 0.5); ctx.lineTo(padL + pw, padT + ph + 0.5); ctx.stroke();
   ctx.textAlign = 'center'; for (let s = 0; s <= span; s += 120) ctx.fillText(s === 0 ? 'jetzt' : '-' + (s / 60) + ' min', padL + pw - s / span * pw, h - 6);
   ctx.strokeStyle = css('--c2'); ctx.lineWidth = 2;
   for (const ev of presEv) { if (ev.kind !== 'join' && ev.kind !== 'leave') continue; const xx = x(ev.t); if (xx < padL) continue; ctx.beginPath(); ctx.moveTo(xx, padT); ctx.lineTo(xx, padT + ph); ctx.stroke(); }
+  if (paging) { ctx.fillStyle = css('--ink2'); ctx.textAlign = 'left'; ctx.fillText('blau = erreichbar, Strich = Wechsel', padL + 6, padT + 14); return; }
   ctx.strokeStyle = css('--c1'); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.beginPath(); let st = false;
   for (const p of pres) { if (p[2] <= 0) { st = false; continue; } const xx = x(p[0]); if (xx < padL) continue; const yy = y(Math.max(lo, Math.min(hi, p[1]))); if (!st) { ctx.moveTo(xx, yy); st = true; } else ctx.lineTo(xx, yy); }
   ctx.stroke();
@@ -462,28 +556,12 @@ function applyModel(ev){
   $('mnote').textContent = 'Entscheidung: ' + ev.best + '  ·  Inferenz ' + String(ev.ms).replace('.', ',') + ' ms';
 }
 
-function applyClap(ev){
-  led1State = ev.led1;
-  $('hval').textContent = ev.led1 ? 'an' : 'aus';
-  $('hsw').style.background = ev.led1 ? css('--c1') : css('--muted');
-  $('hsub').textContent = 'Klatscher #' + ev.n + '  ·  Dauer ' + ev.dur + ' ms  ·  Spitze ' + ev.peak.toLocaleString('de-DE') + ' (x' + String(ev.ratio).replace('.', ',') + ')';
-  const el = $('led1'); el.classList.toggle('on', ev.led1); el.querySelector('.bulb').style.background = ev.led1 ? css('--c1') : 'transparent';
-}
+function applyClap(ev){ led1State = ev.led1; lastClap = ev; renderHero(); }
 
 function applyInference(inf){
-  setMode('gesture');
   last = inf;
-  const bi = labels.indexOf(inf.best);
-  $('hval').textContent = inf.best;
-  $('hsw').style.background = colorOf(bi);
-  $('hsub').textContent = 'Konfidenz ' + fmt(inf.scores[bi] ?? 0) + '  ·  Inferenz #' + inf.n;
   inf.scores.forEach((s, i) => { const b = $('bar' + i); if (b) b.style.width = (Math.max(0, Math.min(1, s)) * 100) + '%'; const v = $('barv' + i); if (v) v.textContent = fmt(s); });
-  setLed('led1', inf.best === 'shaking', labels.indexOf('shaking'));
-  setLed('led2', inf.best === 'circle', labels.indexOf('circle'));
-}
-function setLed(id, on, ci){
-  const el = $(id); el.classList.toggle('on', on);
-  el.querySelector('.bulb').style.background = on ? colorOf(ci) : 'transparent';
+  renderHero();
 }
 
 function updateTable(){
@@ -627,7 +705,7 @@ function tick(){
   drawLevel(now); drawClapStrip(now); drawPresence(now);
   while (frames.length && now - frames[0][0] > 10.5) frames.shift();
   while (infs.length && now - infs[0].t > 60.5) infs.shift();
-  if (mode !== 'clap' && mode !== 'presence') { drawTimeline(now); drawLines('acc', [1, 2, 3], 20, now); drawLines('gyr', [4, 5, 6], 250, now); }
+  if (mode === 'gesture' || mode == null) { drawTimeline(now); drawLines('acc', [1, 2, 3], 20, now); drawLines('gyr', [4, 5, 6], 250, now); }
   requestAnimationFrame(tick);
 }
 let clockOffset = 0;  /* Differenz Browser-Uhr zu Server-Zeitstempeln */
@@ -669,28 +747,55 @@ const es = new EventSource('/events');
 es.onmessage = ev => {
   const m = JSON.parse(ev.data);
   if (m.hello) { if (m.labels && m.labels.length) { labels = m.labels; buildLegend(); } return; }
+  const lastT = (arr, key) => key ? arr[arr.length - 1][key] : arr[arr.length - 1][0];
   if (m.frames && m.frames.length) {
-    if (!clockOffset) clockOffset = Date.now() / 1000 - m.frames[m.frames.length - 1][0];
-    for (const f of m.frames) frames.push(f); fpsCount += m.frames.length; rawSeen = true;
+    if (!clockOffset) clockOffset = Date.now() / 1000 - lastT(m.frames);
+    for (const f of m.frames) frames.push(f); fpsCount += m.frames.length; rawSeen = true; seen.gesture = lastT(m.frames);
   }
   if (m.inf && m.inf.length) {
     for (const inf of m.inf) { if (inf.labels.join() !== labels.join()) { labels = inf.labels; buildLegend(); } infs.push(inf); applyInference(inf); }
-    if (!clockOffset) clockOffset = Date.now() / 1000 - m.inf[m.inf.length - 1].t;
-    ipsCount += m.inf.length; if (!$('tablecard').classList.contains('hidden')) updateTable();
+    if (!clockOffset) clockOffset = Date.now() / 1000 - lastT(m.inf, 't');
+    ipsCount += m.inf.length; if (!$('tablecard').classList.contains('hidden')) updateTable(); seen.gesture = lastT(m.inf, 't');
   }
-  if (m.level && m.level.length) { setMode('clap'); if (!clockOffset) clockOffset = Date.now() / 1000 - m.level[m.level.length - 1][0]; for (const l of m.level) levels.push(l); }
-  if (m.clap && m.clap.length) { setMode('clap'); for (const ev of m.clap) { claps.push(ev); applyClap(ev); } }
-  if (m.reject && m.reject.length) { setMode('clap'); for (const ev of m.reject) rejects.push(ev); }
-  if (m.model && m.model.length) { setMode('clap'); for (const ev of m.model) applyModel(ev); }
-  if (m.pres && m.pres.length) { setMode('presence'); if (!clockOffset) clockOffset = Date.now() / 1000 - m.pres[m.pres.length - 1][0]; for (const p of m.pres) pres.push(p); }
-  if (m.presev && m.presev.length) { setMode('presence'); for (const ev of m.presev) { presEv.push(ev); applyPresence(ev); } }
+  if (m.level && m.level.length) { if (!clockOffset) clockOffset = Date.now() / 1000 - lastT(m.level); for (const l of m.level) levels.push(l); seen.clap = lastT(m.level); }
+  if (m.clap && m.clap.length) { for (const ev of m.clap) { claps.push(ev); applyClap(ev); } seen.clap = lastT(m.clap, 't'); }
+  if (m.reject && m.reject.length) { for (const ev of m.reject) rejects.push(ev); seen.clap = lastT(m.reject, 't'); }
+  if (m.model && m.model.length) { for (const ev of m.model) applyModel(ev); seen.clap = lastT(m.model, 't'); }
+  if (m.pres && m.pres.length) { if (!clockOffset) clockOffset = Date.now() / 1000 - lastT(m.pres); for (const p of m.pres) pres.push(p); seen.presence = lastT(m.pres);
+    /* Zustand auch aus den P-Zeilen, falls der Viewer die PRAESENZ-Meldung beim Start des Boards verpasst hat */
+    const p = m.pres[m.pres.length - 1], on = p[2] > 0;
+    if (!lastPres) lastPres = { kind: 'presence', on, n: p[2], rssi: p[1], mac: '', fromP: true };
+    else if (lastPres.on !== on) { lastPres = { kind: 'presence', on, n: p[2], rssi: p[1], mac: lastPres.mac, fromP: true }; }
+    else { lastPres.n = p[2]; lastPres.rssi = p[1]; }
+    renderHero(); }
+  if (m.presev && m.presev.length) { for (const ev of m.presev) { presEv.push(ev); applyPresence(ev); } seen.presence = lastT(m.presev, 't'); }
+  if (m.house && m.house.length) { for (const ev of m.house) applyHouse(ev); seen.house = lastT(m.house, 't'); }
   if (m.log && m.log.length) { const l = $('log'); for (const s of m.log) l.textContent += s + '\n'; l.scrollTop = l.scrollHeight; }
   if (m.stats) { $('dot').className = 'dot ' + (m.stats.connected ? 'on' : 'off'); $('conn').textContent = (m.stats.connected ? 'verbunden: ' : 'getrennt: ') + String(m.stats.port || '?').replace(/^.*\//, '');
     $('fps').textContent = fpsCount; $('ips').textContent = ipsCount; $('tot').textContent = m.stats.inferences; fpsCount = 0; ipsCount = 0;
-    $('rawnote').textContent = (rawSeen || mode === 'clap' || mode === 'presence') ? '' : 'Keine Rohdaten empfangen: im Sketch STREAM_RAW_FRAMES auf 1 setzen, sonst bleiben die Sensordiagramme leer.'; }
+    $('rawnote').textContent = (rawSeen || mode !== 'gesture') ? '' : 'Keine Rohdaten empfangen: im Sketch STREAM_RAW_FRAMES auf 1 setzen, sonst bleiben die Sensordiagramme leer.'; refreshMenu(); }
+  detect();
 };
 es.onerror = () => { $('dot').className = 'dot off'; $('conn').textContent = 'Verbindung zum Viewer verloren'; };
 $('tbl').addEventListener('click', updateTable);
+
+/* ---------- Funktionsmenue ---------- */
+const menu = $('menu'), burger = $('burger');
+function openMenu(o){ menu.classList.toggle('hidden', !o); burger.setAttribute('aria-expanded', String(o)); }
+burger.addEventListener('click', e => { e.stopPropagation(); openMenu(menu.classList.contains('hidden')); });
+document.addEventListener('click', e => { if (!menu.contains(e.target)) openMenu(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') openMenu(false); });
+function refreshMenu(){
+  const now = srvNow();
+  menu.querySelectorAll('button[data-m]').forEach(b => { const k = b.dataset.m; b.setAttribute('aria-checked', String((pinned || 'auto') === k));
+    const live = k => seen[k] > 0 && now - seen[k] < 5;
+    if (k !== 'auto') b.querySelector('.live').classList.toggle('on', k === 'house' ? (live('clap') && live('presence')) : live(k)); });
+}
+function setPinned(p){ pinned = p; try { localStorage.setItem('viewer-mode', p || 'auto'); } catch (e) {} if (p) applyMode(p); else detect(); refreshMenu(); }
+menu.querySelectorAll('button[data-m]').forEach(b => b.addEventListener('click', () => { setPinned(b.dataset.m === 'auto' ? null : b.dataset.m); openMenu(false); }));
+/* Vorwahl: ?mode=gesture|clap|presence|house|auto, sonst die zuletzt im Browser gewaehlte Funktion */
+{ let p = new URLSearchParams(location.search).get('mode'); if (!p) { try { p = localStorage.getItem('viewer-mode'); } catch (e) {} }
+  if (p && MODES[p]) { pinned = p; applyMode(p); } else refreshMenu(); }
 requestAnimationFrame(tick);
 })();
 </script>

@@ -31,7 +31,7 @@ python3 -m serial.tools.miniterm /dev/ttyACM0 115200        # Konsole, Beenden m
 Der Upload läuft über Infineons OpenOCD und den KitProg3 an J1 und überschreibt die gerade installierte Firmware (z. B. die DEEPCRAFT-Streaming-Firmware). Zurück zur Streaming-Firmware: `tools/flash.sh program firmware/streaming-firmware-2026-01-07.hex`.
 
 ## Live-Viewer
-`tools/live_viewer.py` liest die Konsole mit und zeigt im Browser (http://localhost:8765), was der Chip sieht und erkennt: erkannte Geste, Scores, Zeitstreifen der letzten 60 s, Beschleunigung und Drehrate der letzten 10 s, Tabellenansicht, Hell/Dunkel. Voraussetzung: `STREAM_RAW_FRAMES 1` im Sketch (Standard). Beenden mit Strg+C. Details in SETUP-PROTOKOLL.md Abschnitt 37.
+`tools/live_viewer.py` liest die Konsole mit und zeigt im Browser (http://localhost:8765), was der Chip sieht und erkennt. Die Ansicht folgt automatisch der laufenden Firmware; über das Burger-Menü links oben lässt sie sich fest wählen: Gesten (Geste, Scores, Zeitstreifen, Beschleunigung und Drehrate, Tabelle), Klatschen / Schnipsen (Pegel, Klatscher, Modell-Scores), Anwesenheit per Bluetooth, Haus (Klatschen + Bluetooth). Für die Gesten-Diagramme muss `STREAM_RAW_FRAMES 1` im Sketch stehen (Standard). Beenden mit Strg+C. Details in SETUP-PROTOKOLL.md Abschnitte 37 und 72.
 
 ## Sketch 02-imu-gesture
 Portierung von `examples/deploy-motion` (Infineon, ModusToolbox) auf Arduino:
