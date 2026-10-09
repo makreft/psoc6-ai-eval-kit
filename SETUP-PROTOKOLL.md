@@ -1548,3 +1548,16 @@ t= 175 s  PRAESENZ aus  clients=0                (LED1 aus)
 - Nebenbeobachtung: Ohne Leser auf der seriellen Schnittstelle puffert der KitProg3 die Ausgaben und liefert sie beim nächsten Öffnen gesammelt nach.
 
 Damit erfüllt `bt_page_presence` Marcos Anforderung: keine App, keine Kopplung, LED an solange das Handy mit eingeschaltetem Bluetooth in Reichweite ist, aus wenn Bluetooth aus oder außer Reichweite. Der Entfernungstest ("Haus verlassen") folgt im Alltag; der Mechanismus ist derselbe wie beim Ausschalten (Page Timeout).
+
+## 69. Mikrofon unter Zephyr läuft
+
+`app/clap_rules` geflasht (Marco: "ja, mach weiter mit dem Mikrofon"). Erster Lauf zeigte zunächst keine Pegelzeilen, der zweite mit demselben Build dann doch; Ursache des ersten Aussetzers unklar (vermutlich Mitschnitt zu früh beendet, der Start dauert einige Sekunden). Diagnose-Build mit explizit gesetzter Taktquelle (Pfad 1 auf IMO, bevor die PLL konfiguriert wird) und Ausgaben:
+```
+mic: Pfad1-Quelle 0, Pfad1 8000000 Hz vor PLL
+mic: PLL0 24571429 Hz, HF1 24571429 Hz
+mic: FIFO nach 50 ms: 255 Woerter, Interrupt-Status 0x00250000
+DIAG bloecke=245 fifo=33   (alle 2 s: +251 Bloecke = 125,5 Bloecke/s = 16.064 Samples/s)
+```
+Takt und Abtastrate stimmen (PLL 24,57 MHz, 16 kHz), das FIFO wird per Polling alle 2 ms geleert (Füllstand 33 bis 34 Wörter), keine Überläufe im Betrieb. Die HAL-Taktreservierung funktioniert neben Zephyrs Clock-Control. Build 64.696 Bytes Flash.
+
+**Pegelmaßstab noch offen:** Die Pegel liegen um 800 bis 1.000 (RMS der 16-Bit-Skala), der Arduino-Sketch zeigte im ruhigen Büro 30 bis 50. Marco war aber während des Mitschnitts im Zug; in 46 s Zuglärm (Grundrauschen 815, Spitzen bis 2.345) hat der regelbasierte Detektor nicht ausgelöst, was für die Robustheit der Regeln spricht. Ob die Skala zum Arduino-Stand passt, zeigt ein Klatschtest in ruhiger Umgebung (ausstehend). Die absoluten Schwellen (`MIN_RMS`, `MIN_PEAK_RMS`) müssten sonst angepasst werden; die Verhältnis-Logik ist davon unabhängig.

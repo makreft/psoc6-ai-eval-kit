@@ -86,6 +86,7 @@ int main(void)
 		size_t n = mic_read(tmp, 256);
 		for (size_t i = 0; i < n; i++) { pcm[fill++] = tmp[i]; if (fill == BLOCK) { process_block(pcm, BLOCK); fill = 0; } }
 		if (n == 0) k_msleep(2);
+		static int64_t lastDiag; if (k_uptime_get() - lastDiag >= 2000) { lastDiag = k_uptime_get(); printk("DIAG bloecke=%u fifo=%u\n", blocks, (unsigned)mic_fifo_count()); }
 	}
 	return 0;
 }

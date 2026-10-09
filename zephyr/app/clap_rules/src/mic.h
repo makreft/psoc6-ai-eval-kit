@@ -9,4 +9,5 @@
 int mic_init(void);                               /* Audio-Takt (PLL0 24,576 MHz -> HF1) und PDM/PCM starten */
 size_t mic_read(int16_t *dst, size_t max_samples);  /* so viele Samples wie im FIFO liegen, bis max */
 uint32_t mic_overflows(void);
+uint32_t mic_fifo_count(void);
 #endif
