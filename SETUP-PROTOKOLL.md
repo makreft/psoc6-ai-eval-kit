@@ -1528,3 +1528,23 @@ PAGE ok 465 ms  Name: Marcos-Handy
 Das Handy antwortet in 300 bis 470 ms, LED1 an, Viewer-Modus Anwesenheit passt. Anwendung 63.540 Bytes Flash, 36.508 Bytes RAM. Auf dem Handy ist nichts installiert und nichts eingestellt; Bluetooth muss nur an sein.
 
 Offen: Test "Bluetooth am Handy aus" und "außer Reichweite" (Abschnitt 68), Firmware-Download-Dauer, Wiedereinbau des Rohmodus-Wissens in `ble_presence` (nicht mehr nötig, bleibt als Referenz).
+
+## 68. Test: Bluetooth am Handy aus und wieder an
+
+Mitschnitt 195 s plus Live-Lesung danach. Marco schaltet Bluetooth am Handy aus und wieder ein.
+```
+t= 150 s  PAGE ok 451 ms  Name: Marcos-Handy        (letzte erfolgreiche Abfrage)
+t= 165 s  PAGE fail 0x04 nach 5169 ms            (Bluetooth inzwischen aus: Page Timeout)
+t= 175 s  PAGE fail 0x04 nach 5169 ms
+t= 175 s  CLIENT leave AA:BB:CC:DD:EE:FF
+t= 175 s  PRAESENZ aus  clients=0                (LED1 aus)
+...       PAGE fail 0x04 ... (alle 15 s, solange Bluetooth aus)
+          PAGE ok 466 ms  Name: Marcos-Handy        (Bluetooth wieder an: beim naechsten Versuch erkannt)
+          PRAESENZ an, LED1 an
+```
+- Erkennung "weg": zwischen 20 und 35 s nach dem Ausschalten (Abfrageintervall 15 s, Page-Timeout 5,2 s, zwei Fehlversuche). Für "Haus verlassen, Licht aus" angemessen; wer es schneller will, setzt `PAGE_INTERVAL_MS` auf 5000 bei gleicher Fehlversuchszahl.
+- Erkennung "da": spätestens 15 s nach dem Einschalten, Antwortzeit 450 bis 470 ms.
+- Bei anwesendem Handy antwortet jede Abfrage; in 150 s kein einziger Aussetzer.
+- Nebenbeobachtung: Ohne Leser auf der seriellen Schnittstelle puffert der KitProg3 die Ausgaben und liefert sie beim nächsten Öffnen gesammelt nach.
+
+Damit erfüllt `bt_page_presence` Marcos Anforderung: keine App, keine Kopplung, LED an solange das Handy mit eingeschaltetem Bluetooth in Reichweite ist, aus wenn Bluetooth aus oder außer Reichweite. Der Entfernungstest ("Haus verlassen") folgt im Alltag; der Mechanismus ist derselbe wie beim Ausschalten (Page Timeout).
