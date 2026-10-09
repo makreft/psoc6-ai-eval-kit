@@ -21,7 +21,16 @@ Pins: Konsole UART5 auf P5.1 (TX) / P5.0 (RX), LED0 P5.3, LED1 P5.4, Taster P5.2
 
 Für das IMU-Ziel: Zephyr hat ein TensorFlow-Lite-Micro-Modul (`modules/lib/tflite-micro`, Sample `samples/modules/tflite-micro/magic_wand` erkennt Gesten per IMU) und den BMI270-Treiber. Das wäre der direkteste Zephyr-Weg zur Bewegungserkennung.
 
-## Stand 2026-10-08: Bluetooth läuft
+## Stand 2026-10-09: Anwesenheit ohne App per klassischem Bluetooth
+
+`app/bt_page_presence`: Das Board fragt alle 15 s per HCI Remote Name Request die feste klassische Bluetooth-Adresse des Handys ab (`PHONE_BT_ADDR` in `src/main.c`, Android: Settings > About phone > Status > Bluetooth address). Antwort = Handy in Reichweite und Bluetooth an, LED1 an; zwei Fehlversuche in Folge = LED1 aus. Keine App, keine Kopplung, kein Dialog auf dem Handy. Läuft im HCI-Rohmodus ohne Zephyr-Host, weil der experimentelle klassische Host bei der ersten Verbindung einfriert (Protokoll Abschnitte 65 bis 67).
+```
+west build -p always -b cy8ckit_062s2_ai/cy8c624abzi_s2d44 -d build/page app/bt_page_presence
+west flash -d build/page
+```
+Start dauert etwa 22 s (Firmware-Download im Rohmodus bei 115200 Baud, Optimierung offen).
+
+## Stand 2026-10-08: Bluetooth läuft (BLE-Scanner, Beacon-App nötig, durch bt_page_presence abgelöst)
 
 Workspace per `setup.sh` aufgesetzt (Zephyr v4.4.2, Module hal_infineon, cmsis, cmsis_6, picolibc, mbedtls, tf-psa-crypto; SDK 1.0.1; Blobs). Anwendung `app/ble_presence` scannt passiv nach BLE-Advertisements und schaltet LED1, wenn das Handy (iBeacon-UUID `A1E7A14B-1700-4A1C-9E5A-0C620000C147` oder Name `AI-Eval-Kit-Handy`) in der Nähe ist.
 

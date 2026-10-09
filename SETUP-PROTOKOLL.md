@@ -1489,3 +1489,42 @@ PAGE fail 0x04
 Controller (Cypress, Hersteller-ID 0x0131) meldet sich mit BR/EDR 5.2, eigene Adresse 10:32:2C:65:BB:95. Paging an eine nicht existierende Adresse endet nach 5 s mit Page Timeout, "abwesend" bleibt. Eine Warnung des Hosts (ACL-Puffer 8 != 3) ist harmlos.
 
 Nächster Schritt: Marcos Bluetooth-Adresse eintragen und testen (Handy da, Handy weg, Bluetooth aus).
+
+## 66. Paging mit echter Adresse: der klassische Host friert ein
+
+Marcos Bluetooth-Adresse: AA:BB:CC:DD:EE:FF. Erster Lauf (über den Viewer mitgelesen): Banner, zwei Sekundenzeilen, dann Stille. Danach startete Bluetooth auch nach Neuflashen nicht mehr (Hänger vor "Bluetooth bereit"). Nebenbefund: Marcos Viewer von gestern hing noch am alten USB-Gerät (Board war beim Zuklappen getrennt worden, Kernel-Log 15:42 Disconnect, 08:20 Neuerkennung an anderem Port) und lieferte nur noch sporadisch Daten; beendet, Konsole seither direkt gelesen.
+
+**Strom weg und wieder dran** (Marco hat das Kabel gezogen): Bluetooth startet wieder sauber. Der Software-Reset über den Debugger holt den Funkchip also nicht aus einem verklemmten Zustand; nur der Stromreset. Mit Diagnoseausgaben und sofortigem Logging:
+```
+Adresse ok, starte Bluetooth-Stack ...
+bt_hci_core: HCI: version 5.2 ... manufacturer 0x0131
+bt_enable -> 0
+Bluetooth bereit (BR/EDR + LE)
+PAGE start #1
+```
+Danach 50 s nichts: kein Callback, nicht einmal der 12-s-Timeout des Hauptthreads, keine Sekundenzeilen, kein Fehlerdump. Mit der Platzhalter-Adresse (keine Antwort vom Gegenüber) kam dagegen sauber "PAGE fail 0x04". Schluss: Der experimentelle klassische Host von Zephyr bleibt genau dann hängen, wenn die ACL-Verbindung zum Handy zustande kommt (vermutlich in der anschließenden Sicherheits-/Link-Key-Abwicklung), und reißt dabei das ganze System mit.
+
+**Ausweg:** HCI-Rohmodus (`CONFIG_BT_HCI_RAW`): Die Anwendung spricht den Controller direkt mit HCI-Kommandos an, ohne Host-Stack: Reset, Create Connection auf die Adresse, auf Command Status und Connection Complete warten (Status 0 = erreichbar, 0x04 = Page Timeout), bei Erfolg sofort Disconnect, Link-Key- und PIN-Anfragen negativ beantworten. Wenige Dutzend Zeilen, deterministisch, und der Firmware-Download läuft im Treiber wie bisher. Umsetzung in Abschnitt 67.
+
+## 67. HCI-Rohmodus: Anwesenheit per Remote Name Request funktioniert
+
+**Weg zum Ziel, in Reihenfolge der Stolpersteine:**
+1. Im Rohmodus (`CONFIG_BT_HCI_RAW`) fehlen `bt_addr_from_str` (Host) und die zwei Host-Funktionen `bt_hci_cmd_alloc`/`bt_hci_cmd_send_sync`, die der Infineon-Treiber für den Firmware-Download benutzt. Adressparser selbst geschrieben; die zwei Funktionen in der Anwendung nachgebildet (Kommando bauen, senden, auf Command Complete/Status mit passendem Opcode warten).
+2. Im Rohmodus ruft Zephyr die Treiber-Einrichtung (`setup`, darin der Firmware-Download) nicht auf. Die Anwendung ruft `bt_hci_setup(DEVICE_DT_GET(DT_CHOSEN(zephyr_bt_hci)), &params)` selbst. `CONFIG_BT_HCI_SETUP` ist nicht setzbar (wird vom Treiber gewählt), Eintrag in `prj.conf` entfernt.
+3. Erster Lauf: `bt_hci_setup -> -5`, der Reset bekam keine Antwort. Treiber-Debug zeigte `h4_send: type 3`: In Zephyr 4.4 legt `bt_buf_get_tx` den H4-Pakettyp als erstes Datenbyte ab; mein `net_buf_reserve` hatte es überschrieben. Ebenso tragen empfangene Rohpuffer das Typbyte vorn. Beides korrigiert (Header hinter dem Typbyte eintragen, beim Empfang Typbyte abstreifen).
+4. Danach lief der Firmware-Download durch, dauert im Rohmodus aber 20 s statt 0,1 s (vermutlich bleibt es bei 115200 Baud, weil die Nachbildung den Baudraten-Wechsel des Treibers nicht exakt nachvollzieht). Funktional, Optimierung offen.
+5. Create Connection: Command Status kam, dann verlor der H4-Treiber beim nächsten Paket die Synchronisation ("ACL header, payload 0") und blieb stehen. Statt dessen **Remote Name Request** (Opcode 0x0419): pagt die Adresse und holt nur den Gerätenamen, keine ACL-Verbindung, keine Kopplung; genau das Verfahren von `hcitool name`.
+6. Die Antwort (Remote Name Request Complete, 255 Bytes mit 248 Byte Name) passte nicht in den Ereignispuffer (70 Bytes): `Not enough space in buffer 255/70`. `CONFIG_BT_BUF_EVT_RX_SIZE=255`, dazu `CONFIG_BT_BUF_EVT_RX_COUNT=10` und `CONFIG_BT_BUF_ACL_TX_COUNT=2` wegen einer Build-Assertion (Ereignispuffer müssen zahlreicher sein als ACL-Sendepuffer).
+
+**Ergebnis:**
+```
+Bluetooth bereit (Controller direkt)
+Ziel: AA:BB:CC:DD:EE:FF, alle 15 s ein Verbindungsversuch, 2 Fehlversuche = abwesend
+PAGE ok 296 ms  Name: Marcos-Handy
+CLIENT join AA:BB:CC:DD:EE:FF
+PRAESENZ an  clients=1  rssi=-50 dBm  AA:BB:CC:DD:EE:FF
+PAGE ok 465 ms  Name: Marcos-Handy
+```
+Das Handy antwortet in 300 bis 470 ms, LED1 an, Viewer-Modus Anwesenheit passt. Anwendung 63.540 Bytes Flash, 36.508 Bytes RAM. Auf dem Handy ist nichts installiert und nichts eingestellt; Bluetooth muss nur an sein.
+
+Offen: Test "Bluetooth am Handy aus" und "außer Reichweite" (Abschnitt 68), Firmware-Download-Dauer, Wiedereinbau des Rohmodus-Wissens in `ble_presence` (nicht mehr nötig, bleibt als Referenz).
