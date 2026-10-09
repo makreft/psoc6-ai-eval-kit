@@ -1,0 +1,12 @@
+profiles:
+  psoc6:
+    notes: CY8CKIT-062S2-AI, Versionen gepinnt. Bauen mit  arduino-cli compile --profile psoc6
+    fqbn: infineon:psoc6:cy8ckit_062s2_ai
+    platforms:
+      - platform: infineon:psoc6 (1.1.0)
+        platform_index_url: https://github.com/Infineon/arduino-core-psoc6/releases/latest/download/package_psoc6_index.json
+    libraries:
+      - SparkFun BMI270 Arduino Library (1.0.3)
+      - Chirale_TensorFLowLite (2.0.0)
+
+default_profile: psoc6

@@ -96,6 +96,9 @@ Vorbehalt: Die Validierung ist klein und stammt aus derselben Sitzung wie das Tr
 tools/record_audio.py session
 tools/record_audio.py background --seconds 60
 
+# Umgebung (einmalig): TensorFlow 2.21.0 und numpy 2.5.3 aus ml/requirements.txt
+python3 -m venv ml/.venv && ml/.venv/bin/pip install -r ml/requirements.txt
+
 # Training
 cd ml && .venv/bin/python clap/train.py --data ../data/audio --out clap/out
 

@@ -12,14 +12,14 @@ GPIO, UART (2x), I2C, ADC, DMA, Counter, Watchdog, Flash-Controller, SDHC, LEDs,
 Pins: Konsole UART5 auf P5.1 (TX) / P5.0 (RX), LED0 P5.3, LED1 P5.4, Taster P5.2. Systemtakt 100 MHz.
 
 ## Ablauf
-1. Setup-Skript ausführen (siehe unten): Python-venv mit `west`, schlanker Workspace nur mit den Modulen für Infineon, Zephyr SDK (ARM-Toolchain).
+1. Setup-Skript ausführen (siehe unten): Python-venv mit `west`, Workspace nach `manifest/west.yml` (Zephyr v4.4.2, nur die Module für Infineon, TensorFlow Lite Micro), Zephyr SDK 1.0.1 (ARM-Toolchain, SHA-256 geprüft).
 2. Binär-Blob für den CM0+ holen (Pflicht für dieses Board): `west blobs fetch hal_infineon`
 3. Bauen: `west build -b cy8ckit_062s2_ai/cy8c624abzi_s2d44 zephyr/samples/hello_world`
 4. Flashen über unser Infineon-OpenOCD (Board an J1):
    `west config build.cmake-args -- "-DOPENOCD=$HOME/Dev/AI_Eval_Kit/tools/openocd/bin/openocd"` einmalig, dann `west flash`
 5. Konsole: J1, 115200 8N1, erwartet "Hello World! cy8ckit_062s2_ai".
 
-Für das IMU-Ziel: Zephyr hat ein TensorFlow-Lite-Micro-Modul (`modules/lib/tflite-micro`, Sample `samples/modules/tflite-micro/magic_wand` erkennt Gesten per IMU) und den BMI270-Treiber. Das wäre der direkteste Zephyr-Weg zur Bewegungserkennung.
+TensorFlow Lite Micro: Zephyr 4.4 liefert kein tflite-micro-Modul mehr mit. Das Manifest deklariert deshalb die Bibliothek Chirale_TensorFlowLite v2.0.0 (TFLM mit CMSIS-NN, Apache 2.0, dieselbe wie unter Arduino) als west-Projekt unter `modules/lib/chirale-tflm`; `app/clap_model` und `app/house` kompilieren sie mit.
 
 ## Stand 2026-10-09: Gemeinsame Firmware "house" (Klatschen + Bluetooth)
 
@@ -69,7 +69,7 @@ Besonderheiten:
 - Details und Fehlersuche: SETUP-PROTOKOLL.md Abschnitte 55 bis 59.
 
 ## Setup-Skript
-`setup.sh` legt alles unter `~/Dev/AI_Eval_Kit/zephyr/` an (Zephyr v4.4.2, Module, SDK, Blobs, Patches). Es lädt mehrere GB; Dauer beim ersten Lauf etwa 10 Minuten. Bei einem bestehenden Workspace ist es wiederholbar.
+`setup.sh` legt alles unter `~/Dev/AI_Eval_Kit/zephyr/` an: `west init -l manifest` mit dem versionierten `manifest/west.yml`, `west update`, SDK, Blobs, Patches. Es lädt mehrere GB; Dauer beim ersten Lauf etwa 10 Minuten. Bei einem bestehenden Workspace ist es wiederholbar. Neue Abhängigkeit: Eintrag in `manifest/west.yml`, dann `west update`.
 
 ## Bewertung
 Mächtigster und am besten dokumentierter Open-Source-Weg, aber steilste Lernkurve (west, Kconfig, Devicetree). Lohnt sich, wenn das Board später produktiv eingesetzt werden soll.

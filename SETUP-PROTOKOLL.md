@@ -1632,3 +1632,17 @@ Marcos Wunsch (2026-10-09): Der Schalter soll erst bei zwei Klatschern umgelegt 
 | beide ueber 0,35 | 91 % | 82 % | 91 % | 82 % | 82 % | 82 % |
 
 Das Urteil ueber Fenster 1 aendert sich durch den zweiten Klatscher praktisch nicht (das Modell schaut auf die Einsatzregion). Die Ausfaelle stammen von zwei einzeln schwachen Aufnahmen (eine hat allein p_clap 0,03), nicht von der Ueberlappung. Doppel-Schnipser: p_clap 0,00 bis 0,04 in allen Faellen. Die strenge Regel "beide Fenster muessen Klatscher sein" ist also tragbar; sie multipliziert allerdings die Trefferquote je Klatscher (bei 90 % je Klatscher etwa 81 % je Doppelklatscher). Sollte das im Alltag zu oft daneben gehen, waere die mildere Variante: ein bestaetigter Klatscher plus ein kraeftiger Einsatz. Firmware 149.520 Bytes Flash, 131.228 Bytes RAM; Start und beide Threads im Mitschnitt unauffaellig, Klatschtest steht weiter aus.
+
+## 74. Fremdes als Abhängigkeit, nicht als Kopie
+
+Marcos Wunsch nach dem ersten Push: Zephyr, MicroPython und alles andere Fremde sollen als deklarierte Abhängigkeit im Repo stehen, nicht als Kopie. Bestandsaufnahme: Zephyr war schon keine Kopie (west, v4.4.2), nur das Manifest wurde von `setup.sh` erzeugt und war gitignored. Echte Kopien waren die MicroPython-Firmware (3,4 MB), die Streaming-Firmware von Imagimob (ZIP und HEX, 3,7 MB), die Sicherung der Werksfirmware (2 MB) und das Imagimob-Gestenmodell `model.c` (340 KB, "All Rights Reserved"). Versteckt: TFLM für Zephyr kam aus dem Arduino-Bibliotheksordner, die Werkzeugversionen standen nur im Protokoll, Python-Pakete waren nirgends gepinnt.
+
+**Umgesetzt (alle Downloads SHA-256-geprüft):**
+- `zephyr/manifest/west.yml` ist versioniert (Zephyr-Topologie "Anwendung ist Manifest-Repo"); `setup.sh` erzeugt es nicht mehr, prüft die SDK-Prüfsumme. Neu im Manifest: `Chirale_TensorFlowLite` v2.0.0 (Commit 46da2f9) als west-Projekt unter `modules/lib/chirale-tflm`, weil Zephyr 4.4 kein tflite-micro-Modul mehr mitliefert. `clap_model` und `house` bauen daraus; die Größen sind bytegleich zum Build aus dem Arduino-Ordner (136.524 bzw. 149.520 Bytes Flash). Die Kopien von `model_data.h`/`features_config.h` in beiden Apps sind weg, CMake zeigt auf `ml/clap/out`.
+- `tools/setup.sh`: OpenOCD 5.20.0, fw-loader 3.14.0 (enthält KitProg3 2.90.1804), arduino-cli 1.5.1 aus GitHub-Releases, Prüfsummen aus frischen Downloads. Extraktion mit den Archiven im Scratchpad getestet, alle vier Versionsabfragen stimmen.
+- Arduino: `sketch.yaml` je Sketch mit Build-Profil `psoc6` (Core 1.1.0, Boards-URL, SparkFun BMI270 1.0.3, Chirale 2.0.0). `arduino-cli compile --profile psoc6` installiert alles selbst unter `.arduino15/internal` (1,4 GB, getrennt von der klassischen Installation).
+- `arduino/sketchbook/02-imu-gesture/fetch_model.sh` holt `model.c`/`model.h` aus dem Infineon-Beispiel bei Commit 3fbeb60; die Kopien sind aus dem Repo entfernt (Lizenzgrund).
+- `firmware/fetch.sh` (Imagimob-ZIP, HEX entpackt), `micropython/fetch.sh` (Infineon-Release v1.4.1); die Abbilder und die Sicherung bleiben lokal, `.gitignore` erweitert.
+- `ml/requirements.txt` (TensorFlow 2.21.0, numpy 2.5.3), `tools/requirements.txt` (pyserial 3.5).
+
+Alle drei Fetch-Skripte liefen durch (Prüfsummen stimmen, `model.c` ist identisch mit der Referenz). Hinweis: Die entfernten Dateien bleiben in der Git-Historie der ersten Commits; da das Repo privat ist, wurde die Historie nicht umgeschrieben. Vor einer Veröffentlichung wäre `git filter-repo` auf `model.c` und die Firmware-Abbilder sinnvoll.

@@ -11,12 +11,13 @@ arduino/
   arduino-cli.yaml       Konfiguration: Boards-URL, Datenverzeichnis, Sketchbook
   .arduino15/            Core, Toolchain (GCC 11.3.1), OpenOCD, Indizes (ca. 600 MB, nicht versionieren)
   sketchbook/
-    libraries/           SparkFun BMI270 1.0.3, Chirale_TensorFLowLite 2.0.0
+    libraries/           SparkFun BMI270 1.0.3, Chirale_TensorFLowLite 2.0.0 (klassische Installation, nicht versioniert)
     01-blink-serial/     Erster Test: LED und Konsole
-    02-imu-gesture/      Gestenerkennung, Portierung des Infineon-Beispiels
+    02-imu-gesture/      Gestenerkennung, Portierung des Infineon-Beispiels (model.c/model.h holt fetch_model.sh)
+    ...                  jeder Sketch hat eine sketch.yaml mit Build-Profil: Core und Bibliotheken in fester Version
   README.md
 ```
-Das Werkzeug `arduino-cli` liegt unter `tools/arduino-cli/arduino-cli`.
+Das Werkzeug `arduino-cli` liegt unter `tools/arduino-cli/arduino-cli` (`tools/setup.sh` lädt es).
 
 ## Befehle (aus ~/Dev/AI_Eval_Kit, Board an J1)
 ```
@@ -24,10 +25,12 @@ ACLI=tools/arduino-cli/arduino-cli
 CFG=arduino/arduino-cli.yaml
 FQBN=infineon:psoc6:cy8ckit_062s2_ai
 
+arduino/sketchbook/02-imu-gesture/fetch_model.sh                # einmalig: Imagimob-Modell holen (nicht im Repo)
 $ACLI compile --fqbn $FQBN --config-file $CFG arduino/sketchbook/02-imu-gesture
 $ACLI upload  --fqbn $FQBN --config-file $CFG arduino/sketchbook/02-imu-gesture
 python3 -m serial.tools.miniterm /dev/ttyACM0 115200        # Konsole, Beenden mit Strg+]
 ```
+Reproduzierbar ohne vorherige `core install`/`lib install`: Jeder Sketch trägt in `sketch.yaml` ein Build-Profil `psoc6` mit Core 1.1.0 und den Bibliotheksversionen. `$ACLI compile --profile psoc6 --config-file $CFG arduino/sketchbook/05-clap-model` (ebenso `upload`) installiert alles Nötige selbst unter `arduino/.arduino15/internal` (einmalig etwa 1,4 GB Download, getrennt von der klassischen Installation).
 Der Upload läuft über Infineons OpenOCD und den KitProg3 an J1 und überschreibt die gerade installierte Firmware (z. B. die DEEPCRAFT-Streaming-Firmware). Zurück zur Streaming-Firmware: `tools/flash.sh program firmware/streaming-firmware-2026-01-07.hex`.
 
 ## Live-Viewer

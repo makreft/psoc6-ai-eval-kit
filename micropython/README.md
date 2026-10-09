@@ -6,13 +6,13 @@ Stand: 2026-10-08. Vorbereitet, noch nicht geflasht. Siehe SETUP-PROTOKOLL.md Ab
 Infineon pflegt einen offiziellen MicroPython-Port für PSOC 6 (Repo `Infineon/micropython`, Branch `ports-psoc6-ifx`, Doku https://ifx-micropython.readthedocs.io). Das AI-Kit ist unterstützt. Man bekommt eine Python-REPL auf dem Board und spricht LEDs, Taster, I2C-Sensoren und Wi-Fi direkt aus Python an. Kein Infineon-Konto nötig.
 
 ## Was hier liegt
-- `firmware/mpy-psoc6_CY8CKIT-062S2-AI.hex`: Release v1.4.1 vom 2026-01-15, 3,4 MB Intel-HEX, belegt 0x10000000 bis etwa 0x10120000 (knapp 1,2 MB), also nur den internen Flash.
-  SHA-256: 6b252bbeae780bf37a55107245d07da081aa360a1e2dfc821b28bfb89dfc8344
+- `fetch.sh` holt `firmware/mpy-psoc6_CY8CKIT-062S2-AI.hex` aus Infineons GitHub-Release v1.4.1 (2026-01-15) und prüft die SHA-256 `6b252bbe…`. Die Datei selbst ist nicht versioniert. 3,4 MB Intel-HEX, belegt 0x10000000 bis etwa 0x10120000 (knapp 1,2 MB), also nur den internen Flash.
 
 ## Flashen (Board an J1)
 Überschreibt die DEEPCRAFT-Streaming-Firmware. Die lässt sich jederzeit zurückspielen (unten).
 ```
 cd ~/Dev/AI_Eval_Kit
+micropython/fetch.sh
 tools/flash.sh program micropython/firmware/mpy-psoc6_CY8CKIT-062S2-AI.hex
 ```
 

@@ -11,26 +11,7 @@ python3 -m venv .venv
 
 echo "== 2. Schlanker Workspace (nur Zephyr + Infineon-HAL + CMSIS + tflite-micro) =="
 # Manifest-Projekt: ein eigenes west.yml, das Zephyr importiert und die Modulliste einschraenkt.
-mkdir -p manifest
-cat > manifest/west.yml <<'YML'
-manifest:
-  remotes:
-    - name: zephyrproject
-      url-base: https://github.com/zephyrproject-rtos
-  projects:
-    - name: zephyr
-      remote: zephyrproject
-      revision: v4.4.2
-      import:
-        name-allowlist:
-          - cmsis
-          - cmsis_6
-          - hal_infineon
-          - tflite-micro
-          - picolibc
-          - mbedtls
-          - tf-psa-crypto
-YML
+[ -f manifest/west.yml ] || { echo "manifest/west.yml fehlt (liegt im Repo)"; exit 1; }
 .venv/bin/west init -l manifest
 .venv/bin/west update
 .venv/bin/west zephyr-export
@@ -45,6 +26,7 @@ PY
 echo "SDK-Version laut zephyr/SDK_VERSION: $SDK_VER"
 mkdir -p sdk && cd sdk
 curl -L -o sdk.tar.xz "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VER}/zephyr-sdk-${SDK_VER}_linux-x86_64_minimal.tar.xz"
+echo "ca9bc0ff66fafca1dac9d592a36d953cf16d096a9d09b1c0357f021cf9f6a7eb  sdk.tar.xz" | sha256sum -c - || { echo "SDK-Pruefsumme falsch"; exit 1; }
 tar -xJf sdk.tar.xz && rm sdk.tar.xz
 cd "zephyr-sdk-${SDK_VER}" && ./setup.sh -t arm-zephyr-eabi -h -c
 cd "$HERE"

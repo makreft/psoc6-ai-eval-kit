@@ -1,0 +1,2 @@
+# Werkzeuge tools/*.py und zephyr/setup.sh-Konsole: pip install -r tools/requirements.txt (oder Distributionspaket python3-serial)
+pyserial==3.5

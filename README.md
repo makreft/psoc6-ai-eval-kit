@@ -4,21 +4,32 @@ Arbeit mit dem Infineon PSOC 6 AI Evaluation Kit (CY8CKIT-062S2-AI) unter Linux,
 
 | Dokument | Inhalt |
 |---|---|
-| `SETUP-PROTOKOLL.md` | Vollständiges Protokoll aller Schritte mit Befehlen, Ausgaben und Entscheidungen (50 Abschnitte, 5 Teile) |
+| `SETUP-PROTOKOLL.md` | Vollständiges Protokoll aller Schritte mit Befehlen, Ausgaben und Entscheidungen (74 Abschnitte, 7 Teile) |
 | `BOARD-UEBERSICHT.md` | Was das Board kann, wofür es nicht taugt, Einstiegswege |
 | `ml/clap/README.md` | Klatsch-Erkennung mit eigenem Modell: Daten, Merkmale, Training, Deployment, Ergebnisse |
-| `arduino/README.md` | Arduino-Core, Sketches 01 bis 05, Live-Viewer |
+| `arduino/README.md` | Arduino-Core, Sketches 01 bis 06, Live-Viewer |
 | `data/README.md` | Trainingsdaten |
-| `micropython/README.md`, `zephyr/README.md` | Alternative Wege, vorbereitet |
+| `zephyr/README.md` | Zephyr: Bluetooth-Anwesenheit, Klatsch-Modell, gemeinsame Firmware `house` |
+| `micropython/README.md` | MicroPython, vorbereitet |
 
 ## Was erreicht wurde
 1. Firmware des Kits und des KitProg3-Debuggers mit OpenOCD und fw-loader von GitHub aktualisiert, Werksfirmware gesichert.
 2. Infineons IMU-Gestenbeispiel (DEEPCRAFT-Modell) auf den Arduino-Core portiert, läuft auf dem Board.
 3. Klatsch-Schalter zuerst regelbasiert, dann mit selbst trainiertem CNN (25 KB int8, TensorFlow Lite Micro), inklusive Aufnahme-Werkzeug und Trainingspipeline.
-4. Lokaler Live-Viewer im Browser, der zeigt, was der Chip sieht und erkennt.
+4. Lokaler Live-Viewer im Browser, der zeigt, was der Chip sieht und erkennt, mit Menü für alle Funktionen.
+5. Unter Zephyr: Anwesenheit des Handys per klassischem Bluetooth ohne App, Klatsch-Modell, beides parallel in einer Firmware (`house`): Doppelklatschen schaltet das Licht, Verlassen des Hauses schaltet es aus.
 
-## Nicht im Repo (reproduzierbar)
-- `tools/openocd`, `tools/fw-loader`, `tools/kp-firmware`: GitHub-Releases von Infineon (Protokoll Abschnitt 9).
-- `tools/arduino-cli`, `arduino/.arduino15`, `arduino/sketchbook/libraries`: `arduino-cli` von GitHub, dann `core install infineon:psoc6` und `lib install "SparkFun BMI270 Arduino Library" Chirale_TensorFLowLite` (Protokoll Abschnitt 29 und 30).
-- `ml/.venv`: `python3 -m venv ml/.venv && ml/.venv/bin/pip install numpy tensorflow`.
-- `examples/deploy-motion`: `git clone --depth 1 https://github.com/Infineon/mtb-example-ml-deepcraft-deploy-motion examples/deploy-motion` (Referenz für die Portierung, Stand Commit 3fbeb60).
+## Abhängigkeiten
+Im Repo liegt nur Eigenes. Alles Fremde ist mit fester Version deklariert und wird per Skript geholt, Downloads werden per SHA-256 geprüft (Protokoll Abschnitt 74).
+
+| Abhängigkeit | Version | Deklariert in | Holen mit |
+|---|---|---|---|
+| Infineon OpenOCD, fw-loader, KitProg3-Firmware, arduino-cli | 5.20.0, 3.14.0, 2.90.1804, 1.5.1 | `tools/setup.sh` | `tools/setup.sh` |
+| Arduino-Core infineon:psoc6, SparkFun BMI270, Chirale_TensorFLowLite | 1.1.0, 1.0.3, 2.0.0 | `sketch.yaml` je Sketch (Build-Profil) | `arduino-cli compile --profile psoc6 <sketch>` |
+| Imagimob-Gestenmodell (Infineon-Beispiel, Commit 3fbeb60) | model.c/model.h | `arduino/sketchbook/02-imu-gesture/fetch_model.sh` | dasselbe Skript |
+| Zephyr und Module (hal_infineon, cmsis, cmsis_6, picolibc, mbedtls, tf-psa-crypto), TensorFlow Lite Micro (Chirale) | v4.4.2, v2.0.0 | `zephyr/manifest/west.yml` | `zephyr/setup.sh` (west, SDK 1.0.1, Blobs, Patches) |
+| DEEPCRAFT-Streaming-Firmware (Imagimob) | Stand 2026-01-07 | `firmware/fetch.sh` | dasselbe Skript |
+| MicroPython-Firmware (Infineon) | v1.4.1 | `micropython/fetch.sh` | dasselbe Skript |
+| Python: TensorFlow, numpy; pyserial | 2.21.0, 2.5.3; 3.5 | `ml/requirements.txt`, `tools/requirements.txt` | `pip install -r` |
+
+Nur lokal, nicht versioniert: die Sicherung der Werksfirmware (`firmware/backup-*.bin`, mit `tools/flash.sh backup` erzeugt), Build-Verzeichnisse, venvs und die Referenzkopie `examples/deploy-motion` (`git clone` des Infineon-Beispiels).

@@ -1,0 +1,27 @@
+# West-Manifest des Projekts: alle Zephyr-Abhaengigkeiten, auf feste Versionen gepinnt.
+# Aufbau "Anwendung ist Manifest-Repo" (Zephyr-Topologie T2); zephyr/setup.sh ruft "west init -l manifest" auf.
+manifest:
+  remotes:
+    - name: zephyrproject
+      url-base: https://github.com/zephyrproject-rtos
+    - name: chirale
+      url-base: https://github.com/spaziochirale
+  projects:
+    - name: zephyr
+      remote: zephyrproject
+      revision: v4.4.2
+      import:
+        # nur die Module, die das CY8CKIT-062S2-AI braucht (HAL, CMSIS, libc, TLS fuer Bluetooth-Kconfig)
+        name-allowlist:
+          - cmsis
+          - cmsis_6
+          - hal_infineon
+          - picolibc
+          - mbedtls
+          - tf-psa-crypto
+    # TensorFlow Lite Micro mit CMSIS-NN, dieselbe Quelle wie die Arduino-Bibliothek (Apache 2.0).
+    # Zephyr 4.4 liefert kein tflite-micro-Modul mehr mit. Genutzt von app/clap_model und app/house.
+    - name: Chirale_TensorFlowLite
+      remote: chirale
+      revision: 46da2f989205a9216229d38cd3d1c657d79d6781   # v2.0.0
+      path: modules/lib/chirale-tflm
