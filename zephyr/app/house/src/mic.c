@@ -14,7 +14,6 @@
 
 static cyhal_clock_t pll_clock, audio_clock;
 static cyhal_pdm_pcm_t pdm;
-static int32_t fifo_buf[256];
 static uint32_t overflows;
 
 int mic_init(void)
@@ -58,9 +57,10 @@ int mic_init(void)
 
 size_t mic_read(int16_t *dst, size_t max_samples)
 {
+	/* Bei word_length 16 schreibt die HAL 16-Bit-Samples (uint16_t) direkt in den Puffer. Ein 32-Bit-Zwischenpuffer
+	 * (frueherer Fehler) lieferte nur jedes zweite Sample plus alte Reste: Grundrauschen um 800 statt 50. */
 	size_t n = max_samples < 256 ? max_samples : 256;
-	if (cyhal_pdm_pcm_read(&pdm, fifo_buf, &n) != CY_RSLT_SUCCESS) return 0;
-	for (size_t i = 0; i < n; i++) dst[i] = (int16_t)fifo_buf[i];
+	if (cyhal_pdm_pcm_read(&pdm, dst, &n) != CY_RSLT_SUCCESS) return 0;
 	return n;
 }
 

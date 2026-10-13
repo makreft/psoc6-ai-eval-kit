@@ -1646,3 +1646,9 @@ Marcos Wunsch nach dem ersten Push: Zephyr, MicroPython und alles andere Fremde 
 - `ml/requirements.txt` (TensorFlow 2.21.0, numpy 2.5.3), `tools/requirements.txt` (pyserial 3.5).
 
 Alle drei Fetch-Skripte liefen durch (Prüfsummen stimmen, `model.c` ist identisch mit der Referenz). Hinweis: Die entfernten Dateien bleiben in der Git-Historie der ersten Commits; da das Repo privat ist, wurde die Historie nicht umgeschrieben. Vor einer Veröffentlichung wäre `git filter-repo` auf `model.c` und die Firmware-Abbilder sinnvoll.
+
+## 75. Tests der gemeinsamen Firmware zuhause
+
+**Bluetooth aus und wieder an (2026-10-13, Marco allein, ohne Mitschnitt):** funktioniert wie vorgesehen. Bluetooth am Handy aus: das Licht (LED1) geht aus, LED2 (Anwesenheit) ebenfalls; Bluetooth wieder an: LED2 kommt innerhalb des 15-s-Paging-Takts zurück, das Licht bleibt aus, bis geklatscht wird. Damit ist das Verhalten aus Abschnitt 71 auch mit der Doppelklatsch-Version (Abschnitt 73) bestätigt.
+
+**Klatschtest, erster Versuch (2026-10-13, Viewer-Log `klatsch-zephyr-haus.csv`):** Das Modell sah die Klatscher, stufte sie aber nur mit p_clap 0,12 bis 0,41 ein (ein einzelner "einzel", dann verworfen). Auffällig: Grundrauschen um 811 statt 50, Klatschspitzen nur 5.000 bis 7.000. Ursache im Lesepfad von `mic.c`: Bei Wortlänge 16 schreibt `cyhal_pdm_pcm_read` 16-Bit-Samples (`uint16_t`, so auch Arduinos PDM-Bibliothek), `mic.c` las aber in einen 32-Bit-Puffer und deutete jedes 32-Bit-Wort als ein Sample. Die erste Pufferhälfte enthielt damit nur jedes zweite Sample, die zweite Hälfte alte Reste des vorigen Lesens. Fix: direkt in den `int16_t`-Zielpuffer lesen (alle drei Apps). Danach Grundrauschen 63, wie unter Arduino. Die Mikrofon-"Pegelvergleich offen"-Notiz aus Abschnitt 69 ist damit geklärt: Es war kein Skalenunterschied, sondern ein Lesefehler.
