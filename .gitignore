@@ -44,3 +44,6 @@ firmware/*.bin
 micropython/firmware/*.hex
 arduino/sketchbook/02-imu-gesture/model.c
 arduino/sketchbook/02-imu-gesture/model.h
+
+# Handy-Adressen fuer zephyr/app/house (Vorlage: phones.conf.example)
+zephyr/app/house/phones.conf

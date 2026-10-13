@@ -28,7 +28,19 @@ TensorFlow Lite Micro: Zephyr 4.4 liefert kein tflite-micro-Modul mehr mit. Das 
 west build -p always -b cy8ckit_062s2_ai/cy8c624abzi_s2d44 -d build/house app/house
 west flash -d build/house
 ```
-Der Build dauert beim ersten Mal etwa 80 s (TensorFlow Lite Micro wird mitkompiliert). Handy-Adresse wie bei `bt_page_presence` in `src/bt_presence.c` (`PHONE_BT_ADDR`). Protokoll Abschnitte 71 und 73.
+Der Build dauert beim ersten Mal etwa 80 s (TensorFlow Lite Micro wird mitkompiliert). Protokoll Abschnitte 71, 73 und 76.
+
+**Handys eintragen (bis zu 8):** Die Adressen stehen nicht im Repo, sondern in `app/house/phones.conf` (Vorlage `phones.conf.example`, Datei ist gitignored):
+```
+CONFIG_HOUSE_PHONES="AA:BB:CC:DD:EE:01,AA:BB:CC:DD:EE:02,AA:BB:CC:DD:EE:03"
+```
+```
+west build -p always -b cy8ckit_062s2_ai/cy8c624abzi_s2d44 -d build/house app/house -- -DEXTRA_CONF_FILE=phones.conf
+west flash -d build/house
+```
+Anwesend (LED2 an) = mindestens eines der Handys antwortet auf das Paging; abwesend = keines antwortet in zwei Runden hintereinander (bei 15 s Rundenabstand und 5 s Page-Timeout je abwesendem Handy nach 30 bis 45 s). Android zeigt die klassische Bluetooth-Adresse unter Einstellungen > Über das Telefon > Status; Bluetooth muss an sein, eine Kopplung ist nicht nötig. iPhones sind nicht getestet.
+
+**Für ein anderes Board (z. B. das der Studierenden):** gleiches Kit, gleicher Build. Vorher einmal `tools/fw-loader/bin/fw-loader --device-list` und bei alter KitProg3-Firmware `--update-kp3 kitprog3` (Protokoll Abschnitte 9 bis 12), dann `west flash` mit dem Board an J1.
 
 Bausteine, einzeln lauffähig:
 - `app/clap_rules`: regelbasierter Klatsch-Detektor (Port von Sketch 03) mit dem PDM-Mikrofon über die Infineon-HAL (PLL0 auf 24,576 MHz, 16 kHz mono). Protokoll Abschnitte 64 und 69.

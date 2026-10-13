@@ -1,0 +1,13 @@
+# Einstellungen der Anwendung house. Die Handy-Adressen gehoeren nicht ins Repo: in phones.conf eintragen
+# (Vorlage phones.conf.example) und mit  west build ... -- -DEXTRA_CONF_FILE=phones.conf  bauen.
+mainmenu "House: Klatschen + Bluetooth-Anwesenheit"
+
+config HOUSE_PHONES
+	string "Klassische Bluetooth-Adressen der Handys, kommagetrennt"
+	default ""
+	help
+	  Bis zu 8 Adressen der Form AA:BB:CC:DD:EE:FF, durch Komma getrennt. Android: Einstellungen >
+	  Ueber das Telefon > Status > Bluetooth-Adresse. Anwesend = mindestens eines der Handys antwortet
+	  auf das Paging; abwesend = keines antwortet in zwei Runden hintereinander.
+
+source "Kconfig.zephyr"

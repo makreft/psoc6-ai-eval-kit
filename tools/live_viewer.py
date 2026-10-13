@@ -473,14 +473,14 @@ function renderHero(){
   } else if (mode === 'presence') {
     if (!lastPres) return waiting('warte auf die erste Anwesenheitsmeldung');
     const ev = lastPres; hv.textContent = ev.on ? 'anwesend' : 'abwesend'; sw.style.background = ev.on ? css('--c1') : css('--muted');
-    hs.textContent = paging ? (ev.on ? 'Handy antwortet auf Paging  ·  ' + ev.mac : 'Handy antwortet nicht (aus oder außer Reichweite)')
+    hs.textContent = paging ? (ev.on ? (ev.n > 1 ? ev.n + ' Handys erreichbar  ·  ' : 'Handy antwortet auf Paging  ·  ') + ev.mac : 'kein Handy antwortet (aus oder außer Reichweite)')
                             : ev.n + (ev.n === 1 ? ' Gerät' : ' Geräte') + (ev.rssi != null ? '  ·  ' + ev.rssi + ' dBm  ·  ' + ev.mac : '');
     setLed('led1', ev.on, css('--c1'));
   } else if (mode === 'house') {
     const on = lastHouse ? lastHouse.on : lastClap ? lastClap.led1 : false;
     hv.textContent = on ? 'Licht an' : 'Licht aus'; sw.style.background = on ? css('--c1') : css('--muted');
     const waitingSecond = lastClap && lastClap.kind === 'einzel' && (!lastHouse || lastClap.t > lastHouse.t) && srvNow() - lastClap.t < 2;
-    hs.textContent = (lastPres ? (lastPres.on ? 'Handy anwesend' : 'Handy abwesend') : 'Handy: noch keine Meldung') + (lastHouse ? '  ·  zuletzt: ' + lastHouse.why : '') + (waitingSecond ? '  ·  1. Klatscher erkannt, warte auf den zweiten' : '');
+    hs.textContent = (lastPres ? (lastPres.on ? (lastPres.n > 1 ? lastPres.n + ' Handys anwesend' : 'Handy anwesend') : 'kein Handy anwesend') : 'Handy: noch keine Meldung') + (lastHouse ? '  ·  zuletzt: ' + lastHouse.why : '') + (waitingSecond ? '  ·  1. Klatscher erkannt, warte auf den zweiten' : '');
     setLed('led1', on, css('--c1')); setLed('led2', lastPres && lastPres.on, css('--c3'));
   }
 }

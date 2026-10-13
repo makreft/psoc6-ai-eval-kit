@@ -1,19 +1,19 @@
 /*
  * Anwesenheit per klassischem Bluetooth (BR/EDR) im HCI-Rohmodus, ohne App auf dem Handy.
  *
- * Jedes Handy hat eine feste klassische Bluetooth-Adresse. Das Board schickt alle PAGE_INTERVAL_MS
- * das HCI-Kommando Create Connection an diese Adresse ("Paging"). Antwortet das Handy, kommt
- * Connection Complete mit Status 0: Handy in Reichweite und Bluetooth an. Die Verbindung wird sofort
- * wieder getrennt; Kopplungsanfragen werden negativ beantwortet, es bleibt also bei einem kurzen
- * Funkkontakt ohne Dialog. Status 0x04 (Page Timeout) heisst: weg oder Bluetooth aus.
+ * Jedes Handy hat eine feste klassische Bluetooth-Adresse. Das Board schickt alle PAGE_INTERVAL_MS an jede
+ * Adresse aus CONFIG_HOUSE_PHONES (phones.conf, bis zu 8 Handys) einen Remote Name Request ("Paging").
+ * Antwortet ein Handy, ist es in Reichweite und Bluetooth an; Status 0x04 (Page Timeout) heisst: weg oder
+ * Bluetooth aus. Kopplungsanfragen werden negativ beantwortet, es bleibt bei einem kurzen Funkkontakt ohne
+ * Dialog. Anwesend = mindestens ein Handy antwortet; abwesend = keines in FAIL_LIMIT Runden hintereinander.
  *
  * Warum Rohmodus: Zephyrs experimenteller klassischer Host friert bei der ersten erfolgreichen
  * Verbindung ein (Protokoll Abschnitt 66). Hier spricht die Anwendung den Controller direkt an.
  *
  * Konsole (J1, 115200), Zeilen passend zu tools/live_viewer.py (Modus Anwesenheit):
  *   AP ssid=BT-Paging ip=none kanal=0
- *   PAGE ok <ms> | PAGE fail 0x<status> | PAGE timeout     je Versuch
- *   CLIENT join|leave <adresse>, PRAESENZ an|aus clients=<n> ..., P,<-50 wenn erreichbar sonst -100>,<0|1>
+ *   PAGE ok <ms> <adresse> Name: <name> | PAGE fail 0x<status> ... <adresse> | PAGE timeout <adresse>   je Versuch
+ *   CLIENT join|leave <adresse> je Handy, PRAESENZ an|aus clients=<anzahl erreichbar> ..., P,<-50|-100>,<anzahl>
  */
 #include <zephyr/kernel.h>
 #include <zephyr/bluetooth/hci_raw.h>
@@ -30,14 +30,16 @@
 #include "house.h"
 
 /* ---- Einstellungen ---- */
-#define PHONE_BT_ADDR     "AA:BB:CC:DD:EE:FF"   /* klassische Bluetooth-Adresse von Marcos Android */
-#define PAGE_INTERVAL_MS  15000                 /* Abstand der Versuche */
-#define FAIL_LIMIT        2                     /* so viele Fehlversuche in Folge = abwesend */
+#define MAX_PHONES        8
+#define PAGE_INTERVAL_MS  15000                 /* Abstand der Runden (eine Runde pagt alle Handys nacheinander) */
+#define FAIL_LIMIT        2                     /* so viele Fehlrunden in Folge = dieses Handy abwesend */
 #define CONN_WAIT_MS      9000                  /* laenger als der Page-Timeout des Controllers (5,12 s) */
 
+struct phone { bt_addr_t addr; char str[18]; bool present; int fails; };
+static struct phone phones[MAX_PHONES];
+static int n_phones = 0;
 
 static K_FIFO_DEFINE(rx_queue);
-static bt_addr_t phone;
 
 /* ---- Nachbildung zweier Host-Funktionen, die der Infineon-Treiber beim Firmware-Download braucht.
  * Im Rohmodus gibt es keinen Host; der Treiber ruft sie waehrend bt_hci_setup() auf. Semantik wie im Host:
@@ -91,7 +93,6 @@ static int addr_from_str(const char *str, bt_addr_t *addr)
 	return 0;
 }
 static bool present = false;
-static int fails = 0;
 static uint32_t attempts = 0;
 
 static int hci_cmd(uint16_t opcode, const void *params, uint8_t len)
@@ -158,11 +159,11 @@ static int hci_reset(void)
 #define OP_REMOTE_NAME_REQ_CANCEL BT_OP(BT_OGF_LINK_CTRL, 0x001a)
 #define EVT_REMOTE_NAME_COMPLETE  0x07
 
-static bool page_once(void)
+static bool page_once(struct phone *ph)
 {
 	attempts++;
 	struct { bt_addr_t bdaddr; uint8_t pscan_rep_mode; uint8_t reserved; uint16_t clock_offset; } __packed cp = { .pscan_rep_mode = 0x01 };
-	bt_addr_copy(&cp.bdaddr, &phone);
+	bt_addr_copy(&cp.bdaddr, &ph->addr);
 	int64_t t0 = k_uptime_get();
 	hci_cmd(OP_REMOTE_NAME_REQ, &cp, sizeof(cp));
 
@@ -173,32 +174,49 @@ static bool page_once(void)
 		uint8_t code = evt_wait(K_MSEC(left > 0 ? left : 1), ev, &n);
 		if (code == 0) continue;                       /* Nicht-Ereignis (z. B. ACL) oder Timeout der Wartezeit */
 		if (code == BT_HCI_EVT_CMD_STATUS && n >= 4) {
-			if (ev[0] != 0) { printk("PAGE fail (cmd status 0x%02x)\n", ev[0]); return false; }
+			if (ev[0] != 0) { printk("PAGE fail (cmd status 0x%02x) %s\n", ev[0], ph->str); return false; }
 		} else if (code == EVT_REMOTE_NAME_COMPLETE && n >= 7) {
 			result = ev[0];
-			if (result == 0) { ev[n < 64 ? n : 63] = 0; printk("PAGE ok %lld ms  Name: %s\n", k_uptime_get() - t0, (const char *)&ev[7]); }
-			else printk("PAGE fail 0x%02x nach %lld ms\n", result, k_uptime_get() - t0);
+			if (result == 0) { ev[n < 64 ? n : 63] = 0; printk("PAGE ok %lld ms  %s  Name: %s\n", k_uptime_get() - t0, ph->str, (const char *)&ev[7]); }
+			else printk("PAGE fail 0x%02x nach %lld ms  %s\n", result, k_uptime_get() - t0, ph->str);
 			break;
 		} else if (code == BT_HCI_EVT_LINK_KEY_REQ || code == BT_HCI_EVT_PIN_CODE_REQ || code == BT_HCI_EVT_IO_CAPA_REQ) {
 			handle_security_event(code, ev);
 		}
 	}
 	if (result < 0) {
-		printk("PAGE timeout\n");
-		hci_cmd(OP_REMOTE_NAME_REQ_CANCEL, &phone, sizeof(phone));
+		printk("PAGE timeout  %s\n", ph->str);
+		hci_cmd(OP_REMOTE_NAME_REQ_CANCEL, &ph->addr, sizeof(ph->addr));
 		for (int i = 0; i < 5; i++) { uint8_t c = evt_wait(K_MSEC(1000), ev, &n); if (c == EVT_REMOTE_NAME_COMPLETE || c == 0) break; }
 		return false;
 	}
 	return result == 0;
 }
 
-static void set_present(bool on)
+static int n_present(void) { int n = 0; for (int i = 0; i < n_phones; i++) if (phones[i].present) n++; return n; }
+
+/* Zustand eines Handys setzen; die Gesamtanwesenheit (mindestens eines erreichbar) geht an die Hauslogik */
+static void set_phone_present(struct phone *ph, bool on)
 {
-	if (on == present) return;
-	present = on;
-	house_set_presence(on);
-	if (on) printk("CLIENT join %s\nPRAESENZ an  clients=1  rssi=-50 dBm  %s\n", PHONE_BT_ADDR, PHONE_BT_ADDR);
-	else    printk("CLIENT leave %s\nPRAESENZ aus  clients=0\n", PHONE_BT_ADDR);
+	if (on == ph->present) return;
+	ph->present = on;
+	printk("CLIENT %s %s\n", on ? "join" : "leave", ph->str);
+	int n = n_present(); bool any = n > 0;
+	if (any != present) { present = any; house_set_presence(any); }
+	if (any) { const char *first = ""; for (int i = 0; i < n_phones; i++) if (phones[i].present) { first = phones[i].str; break; }
+		printk("PRAESENZ an  clients=%d  rssi=-50 dBm  %s\n", n, first); }
+	else printk("PRAESENZ aus  clients=0\n");
+}
+
+static int parse_phones(const char *list)
+{
+	char buf[MAX_PHONES * 20]; strncpy(buf, list, sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0;
+	for (char *tok = strtok(buf, ", "); tok && n_phones < MAX_PHONES; tok = strtok(NULL, ", ")) {
+		struct phone *ph = &phones[n_phones];
+		if (addr_from_str(tok, &ph->addr)) { printk("FEHLER: Adresse ungueltig: %s\n", tok); return -1; }
+		strncpy(ph->str, tok, 17); ph->str[17] = 0; ph->present = false; ph->fails = 0; n_phones++;
+	}
+	return n_phones ? 0 : -1;
 }
 
 
@@ -206,7 +224,7 @@ void bt_presence_thread(void *a, void *b, void *c)
 {
 	(void)a; (void)b; (void)c;
 	printk("BT: Anwesenheit per Paging (HCI-Rohmodus)\n");
-	if (addr_from_str(PHONE_BT_ADDR, &phone)) { printk("FEHLER: Adresse ungueltig\n"); return; }
+	if (parse_phones(CONFIG_HOUSE_PHONES)) { printk("FEHLER: keine gueltige Handy-Adresse (CONFIG_HOUSE_PHONES, siehe phones.conf.example)\n"); return; }
 	int err = bt_enable_raw(&rx_queue);
 	printk("bt_enable_raw -> %d\n", err);
 	if (err) { for (;;) { k_msleep(100); } }
@@ -221,7 +239,8 @@ void bt_presence_thread(void *a, void *b, void *c)
 	if (err) { for (;;) { k_msleep(200); } }
 	printk("Bluetooth bereit (Controller direkt)\n");
 	printk("AP ssid=BT-Paging ip=none kanal=0\n");
-	printk("Ziel: %s, alle %d s ein Verbindungsversuch, %d Fehlversuche = abwesend\n", PHONE_BT_ADDR, PAGE_INTERVAL_MS / 1000, FAIL_LIMIT);
+	printk("Ziel: %d Handy(s), alle %d s eine Paging-Runde, %d Fehlrunden = abwesend\n", n_phones, PAGE_INTERVAL_MS / 1000, FAIL_LIMIT);
+	for (int i = 0; i < n_phones; i++) printk("  Handy %d: %s\n", i + 1, phones[i].str);
 
 	int64_t next = k_uptime_get();
 	uint32_t ticks = 0;
@@ -229,13 +248,15 @@ void bt_presence_thread(void *a, void *b, void *c)
 		int64_t now = k_uptime_get();
 		if (now >= next) {
 			next = now + PAGE_INTERVAL_MS;
-			bool ok = page_once();
-			if (ok) { fails = 0; set_present(true); }
-			else { fails++; if (fails >= FAIL_LIMIT) set_present(false); }
+			for (int i = 0; i < n_phones; i++) {
+				struct phone *ph = &phones[i];
+				if (page_once(ph)) { ph->fails = 0; set_phone_present(ph, true); }
+				else { ph->fails++; if (ph->fails >= FAIL_LIMIT) set_phone_present(ph, false); }
+			}
 		}
 		/* zwischendurch eintreffende Ereignisse (z. B. verspaetete) leeren */
 		uint8_t ev[64], n; while (evt_wait(K_NO_WAIT, ev, &n)) { }
-		printk("P,%d,%d\n", present ? -50 : -100, present ? 1 : 0);
+		printk("P,%d,%d\n", present ? -50 : -100, n_present());
 		/* AP-Zeile jede Minute wiederholen, damit ein spaeter gestarteter Viewer den Modus erkennt */
 		if (++ticks % 60 == 0) printk("AP ssid=BT-Paging ip=none kanal=0\n");
 		k_msleep(1000);
