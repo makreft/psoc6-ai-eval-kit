@@ -487,7 +487,7 @@ function renderHero(){
 function applyPresence(ev){
   if (ev.kind === 'ap') {
     apInfo = ev; paging = /^BT-/.test(ev.ssid);
-    $('apnote').textContent = paging ? 'Bluetooth-Paging (Remote Name Request alle 15 s), kein WLAN' : 'WLAN "' + ev.ssid + '", IP ' + ev.ip + ', Kanal ' + ev.channel;
+    $('apnote').textContent = paging ? 'Bluetooth-Paging (Remote Name Request je Runde), kein WLAN' : 'WLAN "' + ev.ssid + '", IP ' + ev.ip + ', Kanal ' + ev.channel;
     $('prstitle').textContent = paging ? 'Handy per Bluetooth erreichbar, letzte 10 Minuten' : 'Signalstärke des Handys, letzte 10 Minuten (dBm)';
     $('prsrssi').classList.toggle('hidden', paging);
     if (mode === 'presence') $('herotitle').textContent = paging ? 'Anwesenheit per Bluetooth' : MODES.presence.hero;

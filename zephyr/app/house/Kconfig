@@ -10,4 +10,27 @@ config HOUSE_PHONES
 	  Ueber das Telefon > Status > Bluetooth-Adresse. Anwesend = mindestens eines der Handys antwortet
 	  auf das Paging; abwesend = keines antwortet in zwei Runden hintereinander.
 
+config HOUSE_PAGE_INTERVAL_MS
+	int "Abstand der Paging-Runden in ms"
+	default 5000
+	help
+	  Eine Runde pagt alle Handys nacheinander. Dauert die Runde laenger (abwesende Handys kosten je
+	  HOUSE_PAGE_TIMEOUT_MS), folgt die naechste sofort.
+
+config HOUSE_PAGE_TIMEOUT_MS
+	int "Page-Timeout des Controllers je Versuch in ms"
+	default 2000
+	range 625 10000
+	help
+	  So lange wartet der Bluetooth-Controller auf die Antwort eines Handys (HCI Write Page Timeout).
+	  Handys in Reichweite antworten in 0,3 bis 0,7 s. Der Standard des Controllers waere 5120 ms.
+
+config HOUSE_FAIL_LIMIT
+	int "Fehlrunden in Folge, bis ein Handy als abwesend gilt"
+	default 2
+	range 1 10
+	help
+	  Mit 2 fuehrt ein einzelner verpasster Versuch nicht zum Abschalten. Abwesenheit wird dann nach
+	  etwa FAIL_LIMIT Runden gemeldet, bei drei abwesenden Handys und den Standardwerten nach 12 bis 18 s.
+
 source "Kconfig.zephyr"

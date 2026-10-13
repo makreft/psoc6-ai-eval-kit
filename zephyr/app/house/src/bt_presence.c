@@ -31,9 +31,10 @@
 
 /* ---- Einstellungen ---- */
 #define MAX_PHONES        8
-#define PAGE_INTERVAL_MS  15000                 /* Abstand der Runden (eine Runde pagt alle Handys nacheinander) */
-#define FAIL_LIMIT        2                     /* so viele Fehlrunden in Folge = dieses Handy abwesend */
-#define CONN_WAIT_MS      9000                  /* laenger als der Page-Timeout des Controllers (5,12 s) */
+#define PAGE_INTERVAL_MS  CONFIG_HOUSE_PAGE_INTERVAL_MS   /* Abstand der Runden (eine Runde pagt alle Handys nacheinander) */
+#define FAIL_LIMIT        CONFIG_HOUSE_FAIL_LIMIT         /* so viele Fehlrunden in Folge = dieses Handy abwesend */
+#define PAGE_TIMEOUT_MS   CONFIG_HOUSE_PAGE_TIMEOUT_MS    /* Page-Timeout des Controllers (HCI Write Page Timeout) */
+#define CONN_WAIT_MS      (PAGE_TIMEOUT_MS + 2000)        /* laenger als der Page-Timeout, sonst Abbruch durch uns */
 
 struct phone { bt_addr_t addr; char str[18]; bool present; int fails; };
 static struct phone phones[MAX_PHONES];
@@ -139,6 +140,16 @@ static void handle_security_event(uint8_t code, const uint8_t *p)
 	}
 }
 
+/* Page-Timeout des Controllers setzen (Einheit 0,625 ms); Standard waere 0x2000 = 5,12 s */
+static int hci_set_page_timeout(uint32_t ms)
+{
+	uint16_t v = sys_cpu_to_le16((uint16_t)(ms * 1000 / 625));
+	struct net_buf *buf = bt_hci_cmd_alloc(K_FOREVER);
+	if (!buf) return -ENOBUFS;
+	net_buf_add_mem(buf, &v, sizeof(v));
+	return bt_hci_cmd_send_sync(BT_OP(BT_OGF_BASEBAND, 0x0018), buf, NULL);
+}
+
 static int hci_reset(void)
 {
 	uint8_t ev[64], n;
@@ -237,9 +248,11 @@ void bt_presence_thread(void *a, void *b, void *c)
 	err = hci_reset();
 	printk("HCI Reset -> %d\n", err);
 	if (err) { for (;;) { k_msleep(200); } }
+	err = hci_set_page_timeout(PAGE_TIMEOUT_MS);
+	printk("Page-Timeout %d ms -> %d\n", PAGE_TIMEOUT_MS, err);
 	printk("Bluetooth bereit (Controller direkt)\n");
 	printk("AP ssid=BT-Paging ip=none kanal=0\n");
-	printk("Ziel: %d Handy(s), alle %d s eine Paging-Runde, %d Fehlrunden = abwesend\n", n_phones, PAGE_INTERVAL_MS / 1000, FAIL_LIMIT);
+	printk("Ziel: %d Handy(s), alle %d s eine Paging-Runde, Page-Timeout %d ms, %d Fehlrunden = abwesend\n", n_phones, PAGE_INTERVAL_MS / 1000, PAGE_TIMEOUT_MS, FAIL_LIMIT);
 	for (int i = 0; i < n_phones; i++) printk("  Handy %d: %s\n", i + 1, phones[i].str);
 
 	int64_t next = k_uptime_get();
