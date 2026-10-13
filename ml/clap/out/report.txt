@@ -1,4 +1,4 @@
-Daten: Training 656 Fenster [208, 224, 224] (other, clap, snap), Validierung 20 Fenster [4, 8, 8], Dateien 82/20
+Daten: Training 1136 Fenster [235, 502, 399] (other, clap, snap), Validierung 36 Fenster [3, 19, 14], Dateien 125/32
 Model: "functional"
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
 ┃ Layer (type)                    ┃ Output Shape           ┃       Param # ┃
@@ -29,20 +29,21 @@ Model: "functional"
  Trainable params: 18,275 (71.39 KB)
  Non-trainable params: 0 (0.00 B)
 
-Training: 40 Epochen, beste Epoche 39, val_loss 0.097, val_acc 1.000
+Training: 32 Epochen, beste Epoche 24, val_loss 0.144, val_acc 0.944
 Konfusionsmatrix Validierung (float):
                other    clap    snap
-  ist other        4       0       0
-  ist clap         0       8       0
-  ist snap         0       0       8
+  ist other        2       1       0
+  ist clap         1      18       0
+  ist snap         0       0      14
   (Zeilen: wahre Klasse, Spalten: Vorhersage)
+Fehler (Datei, wahr, vorhergesagt): clap2_20261013_160929_006.wav: clap->other; other_20261008_134542_011.wav: other->clap
 TFLite int8: 25312 Bytes -> clap/out/clap_model.tflite
 Quantisierung: Eingabe scale 0.003922 zero -128, Ausgabe scale 0.003906 zero -128
 Konfusionsmatrix Validierung (int8):
                other    clap    snap
-  ist other        4       0       0
-  ist clap         0       8       0
-  ist snap         0       0       8
+  ist other        2       1       0
+  ist clap         1      18       0
+  ist snap         0       0      14
   (Zeilen: wahre Klasse, Spalten: Vorhersage)
-Genauigkeit Validierung: float 1.000, int8 1.000
+Genauigkeit Validierung: float 0.944, int8 0.944
 Operatoren: CONV_2D, MAX_POOL_2D, RESHAPE, FULLY_CONNECTED, SOFTMAX

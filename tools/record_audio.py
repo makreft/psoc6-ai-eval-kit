@@ -141,12 +141,22 @@ OTHER_PROMPTS = ["auf den Tisch klopfen", "mit Schluesseln klimpern", "einmal hu
                  "Stuhl ruecken", "Tastatur anschlagen", "schnalzen mit der Zunge", "Hand auf den Tisch legen (leise)"]
 
 
+VARIANTS = ["nah am Board (30 cm)", "aus 1 m", "aus 2 bis 3 m", "leise", "kraeftig", "vom Tisch aus, beilaeufig"]
+
+
 def cmd_session(st, a):
     out = a.out; os.makedirs(out, exist_ok=True)
     plan = []
-    for i in range(a.per_class):
-        plan.append(("clap", "KLATSCHEN")); plan.append(("snap", "SCHNIPSEN"))
-        if i % 2 == 0: plan.append(("other", "Stoergeraeusch: " + OTHER_PROMPTS[(i // 2) % len(OTHER_PROMPTS)]))
+    if a.plan:
+        # eigener Plan: "klasse=Ansage,klasse=Ansage"; Klassen mit Endung 2 sind Clips mit zwei Ereignissen (z. B. clap2)
+        entries = [e.split("=", 1) for e in a.plan.split(",")]
+        for i in range(a.per_class):
+            for cls, prompt in entries:
+                plan.append((cls.strip(), f"{prompt.strip()}  ({VARIANTS[i % len(VARIANTS)]})"))
+    else:
+        for i in range(a.per_class):
+            plan.append(("clap", "KLATSCHEN")); plan.append(("snap", "SCHNIPSEN"))
+            if i % 2 == 0: plan.append(("other", "Stoergeraeusch: " + OTHER_PROMPTS[(i // 2) % len(OTHER_PROMPTS)]))
     total = len(plan)
     print(f"Aufnahmesitzung: {total} Clips a {a.clip:.1f} s, Ablage {out}/")
     print("Ablauf je Clip: Ansage, Countdown, dann 'JETZT' und LED1 an. Geraeusch waehrend LED1 leuchtet machen.")
@@ -155,7 +165,7 @@ def cmd_session(st, a):
         input("Enter zum Start ...")
     except KeyboardInterrupt:
         print(); return
-    done = {"clap": 0, "snap": 0, "other": 0}
+    done = {}
     try:
         for k, (cls, prompt) in enumerate(plan, 1):
             print(f"\n[{k}/{total}] {prompt}")
@@ -165,14 +175,14 @@ def cmd_session(st, a):
             samples = st.record(a.clip, on_progress=lambda f: print(f"\r  JETZT!  {'#' * int(f * 20):20s}", end="", flush=True))
             st.led(False)
             rel, peak = save_clip(st, out, cls, prompt, samples, lost0)
-            done[cls] += 1
+            done[cls] = done.get(cls, 0) + 1
             note = "  (sehr leise, war da etwas?)" if cls != "other" and peak < 1500 else ""
             print(f"\r  gespeichert {rel}  Peak {peak}{note}      ")
             time.sleep(0.4)
     except KeyboardInterrupt:
         print("\n\nAbgebrochen.")
     st.led(False)
-    print(f"\nAufgenommen: Klatschen {done['clap']}, Schnipsen {done['snap']}, Stoergeraeusche {done['other']}. Index: {out}/index.csv")
+    print("\nAufgenommen: " + ", ".join(f"{c} {n}" for c, n in done.items()) + f". Index: {out}/index.csv")
 
 
 def cmd_background(st, a):
@@ -192,6 +202,7 @@ def main():
     ap.add_argument("--out", default="data/audio")
     ap.add_argument("--seconds", type=float, default=5.0, help="monitor/background: Dauer")
     ap.add_argument("--per-class", type=int, default=40, help="session: Clips je Klasse Klatschen/Schnipsen")
+    ap.add_argument("--plan", default=None, help='session: eigener Plan "klasse=Ansage,...", z. B. "clap2=ZWEIMAL KLATSCHEN,clap=EINMAL KLATSCHEN,snap2=ZWEIMAL SCHNIPSEN"')
     ap.add_argument("--clip", type=float, default=1.5, help="session: Clip-Laenge in s")
     ap.add_argument("--force", action="store_true", help="auch wenn ein anderes Programm den Port haelt")
     a = ap.parse_args()
