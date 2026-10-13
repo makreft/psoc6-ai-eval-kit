@@ -2,6 +2,6 @@ board_manager:
     additional_urls:
         - https://github.com/Infineon/arduino-core-psoc6/releases/latest/download/package_psoc6_index.json
 directories:
-    data: /home/marco/Dev/AI_Eval_Kit/arduino/.arduino15
-    downloads: /home/marco/Dev/AI_Eval_Kit/arduino/.arduino15/staging
-    user: /home/marco/Dev/AI_Eval_Kit/arduino/sketchbook
+    data: arduino/.arduino15
+    downloads: arduino/.arduino15/staging
+    user: arduino/sketchbook

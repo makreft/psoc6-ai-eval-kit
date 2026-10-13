@@ -19,6 +19,18 @@ Arbeit mit dem Infineon PSOC 6 AI Evaluation Kit (CY8CKIT-062S2-AI) unter Linux,
 4. Lokaler Live-Viewer im Browser, der zeigt, was der Chip sieht und erkennt, mit Menü für alle Funktionen.
 5. Unter Zephyr: Anwesenheit des Handys per klassischem Bluetooth ohne App, Klatsch-Modell, beides parallel in einer Firmware (`house`): Doppelklatschen schaltet das Licht, Verlassen des Hauses schaltet es aus.
 
+## Schnellstart für Studierende
+Ziel: das Kit mit der Firmware `house` betreiben (Doppelklatschen schaltet LED1, LED2 zeigt, ob eines eurer Handys per Bluetooth erreichbar ist) und die Ausgaben im Browser sehen. Linux (getestet Ubuntu 24.04), kein Infineon-Konto nötig.
+
+1. Repo klonen, Werkzeuge holen: `tools/setup.sh` (OpenOCD, fw-loader, arduino-cli), dann die udev-Regeln installieren (Befehle stehen im Kopf von `tools/setup.sh`, einmalig mit sudo) und euch zur Gruppe `plugdev` hinzufügen.
+2. Board an J1 (USB-Buchse neben dem Debugger-Chip), prüfen: `tools/flash.sh info`.
+3. Zephyr-Workspace anlegen: `zephyr/setup.sh` (lädt etwa 5 GB, einmalig).
+4. Handy-Adressen eintragen: `zephyr/app/house/phones.conf` nach der Vorlage `phones.conf.example` anlegen. Android: Einstellungen > Über das Telefon > Status; iPhone: Einstellungen > Allgemein > Info.
+5. Bauen und flashen (siehe `zephyr/README.md`, Abschnitt house): `west build ... -- -DEXTRA_CONF_FILE=phones.conf`, dann `west flash -d build/house`.
+6. Viewer starten: `tools/live_viewer.py`, Browser auf http://localhost:8765, Menü links oben auf "Haus".
+
+Alles andere (Arduino-Weg, eigenes Klatsch-Modell trainieren, Aufnahmen machen) steht in den README-Dateien der Unterordner. Die Entstehungsgeschichte mit allen Irrwegen steht in `SETUP-PROTOKOLL.md`. Lizenz: MIT (`LICENSE`) für Code und Dokumentation; die Audioaufnahmen in `data/audio` sind Eigenaufnahmen und dürfen für eigene Experimente genutzt werden.
+
 ## Abhängigkeiten
 Im Repo liegt nur Eigenes. Alles Fremde ist mit fester Version deklariert und wird per Skript geholt, Downloads werden per SHA-256 geprüft (Protokoll Abschnitt 74).
 

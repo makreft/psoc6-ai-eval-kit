@@ -29,7 +29,7 @@
 #include <stdlib.h>
 
 /* ---- Einstellungen ---- */
-#define PHONE_BT_ADDR     "AA:BB:CC:DD:EE:FF"   /* klassische Bluetooth-Adresse von Marcos Android */
+#define PHONE_BT_ADDR     "AA:BB:CC:DD:EE:FF"   /* klassische Bluetooth-Adresse des Handys hier eintragen (app/house liest sie aus phones.conf) */
 #define PAGE_INTERVAL_MS  15000                 /* Abstand der Versuche */
 #define FAIL_LIMIT        2                     /* so viele Fehlversuche in Folge = abwesend */
 #define CONN_WAIT_MS      9000                  /* laenger als der Page-Timeout des Controllers (5,12 s) */
